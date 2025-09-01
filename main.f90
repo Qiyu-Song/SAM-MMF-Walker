@@ -8,7 +8,7 @@ use microphysics
 use sgs
 use tracers
 use movies, only: init_movies
-use params, only: dompiensemble
+use params, only: dompiensemble, dompimmf
 implicit none
 
 integer k, icyc, nn, nstatsteps
@@ -56,10 +56,10 @@ elseif(nrestart.eq.1) then
    call read_all()
    call setgrid() ! initialize vertical grid structure
    ! Kuang Ensemble run: turn off mpi for diagnose (Song Qiyu, 2022)
-   if(dompiensemble) dompi = .false.
+   if(dompiensemble.or.dompimmf) dompi = .false.
    call diagnose()
    ! Kuang Ensemble run: turn on mpi after diagnose (Song Qiyu, 2022)
-   if(dompiensemble) dompi = .true.
+   if(dompiensemble.or.dompimmf) dompi = .true.
    call sgs_init()
    call micro_init()  !initialize microphysics
    if(dorandmultisine) then
@@ -70,10 +70,10 @@ elseif(nrestart.eq.2) then  ! branch run
    call read_all()
    call setgrid() ! initialize vertical grid structure
    ! Kuang Ensemble run: turn off mpi for diagnose (Song Qiyu, 2022)
-   if(dompiensemble) dompi = .false.
+   if(dompiensemble.or.dompimmf) dompi = .false.
    call diagnose()
    ! Kuang Ensemble run: turn on mpi after diagnose (Song Qiyu, 2022)
-   if(dompiensemble) dompi = .true.
+   if(dompiensemble.or.dompimmf) dompi = .true.
    call setparm() ! overwrite the parameters
    call sgs_init()
    call micro_init()  !initialize microphysics
@@ -119,7 +119,7 @@ call t_stopf ('initialize')
 do while(nstep.lt.nstop.and.nelapse.gt.0) 
  
   ! Kuang Ensemble run: turn off mpi entering each loop (Song Qiyu, 2022)
-  if(dompiensemble) dompi = .false.
+  if(dompiensemble.or.dompimmf) dompi = .false.
   
   if(firststep.and.(dorandmultisine.or.donoisywave)) then
     call random_seed(put=seed+iensemble)
@@ -360,7 +360,7 @@ do while(nstep.lt.nstop.and.nelapse.gt.0)
    end if
  
    ! Kuang Ensemble run: turn on mpi after each loop (Song Qiyu, 2022)
-   if(dompiensemble) dompi = .true.
+   if(dompiensemble.or.dompimmf) dompi = .true.
   
 !----------------------------------------------------------
 

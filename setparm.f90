@@ -60,7 +60,8 @@ NAMELIST /KUANG_PARAMS/ dompiensemble, &
                 wavedampingtime,wavetqdampingtime,&
                 doadvectbg,doparameterizedwave,dointernalnoise,&
                 dosavemultirestart, nrestartstart,&
-                donoisywave, noiselevel
+                donoisywave, noiselevel, &
+                dompimmf, nstephostmodel
                 
 
 !bloss: Create dummy namelist, so that we can figure out error code

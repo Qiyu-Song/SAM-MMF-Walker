@@ -66,12 +66,12 @@ endif
 if((mod(nstep,nstat*(1+nrestart_skip)).eq.0.and.nstep.ge.nrestartstart).or.nstep.eq.nstop.or.nelapse.eq.0) then
 
   ! Kuang Ensemble run: turn on mpi before writing restart (Song Qiyu, 2022)
-  if(dompiensemble) dompi = .true.
+  if(dompiensemble.or.dompimmf) dompi = .true.
 
   call write_all() ! save restart file
   
   ! Kuang Ensemble run: turn off mpi after writing restart (Song Qiyu, 2022)
-  if(dompiensemble) dompi = .false.
+  if(dompiensemble.or.dompimmf) dompi = .false.
   
 end if
 
@@ -82,12 +82,12 @@ call t_startf ('2D_out')
 if(mod(nstep,nsave2D).eq.0.and.nstep.ge.nsave2Dstart &
                                    .and.nstep.le.nsave2Dend) then
   ! Kuang Ensemble run: turn on mpi before writing 2D output (Song Qiyu, 2022)
-  if(dompiensemble) dompi = .true.
+  if(dompiensemble.or.dompimmf) dompi = .true.
 
   call write_fields2D()
 
   ! Kuang Ensemble run: turn off mpi after writing 2D output (Song Qiyu, 2022)
-  if(dompiensemble) dompi = .false.
+  if(dompiensemble.or.dompimmf) dompi = .false.
 
 endif
 
@@ -99,7 +99,7 @@ call t_startf ('3D_out')
 if(mod(nstep,nsave3D).eq.0.and.nstep.ge.nsave3Dstart.and.nstep.le.nsave3Dend ) then
 
   ! Kuang Ensemble run: turn on mpi before writing 3D output (Song Qiyu, 2022)
-  if(dompiensemble) dompi = .true.
+  if(dompiensemble.or.dompimmf) dompi = .true.
 
   ! determine if the maximum cloud water exceeds the threshold
   ! value to save 3D fields:
@@ -121,7 +121,7 @@ if(mod(nstep,nsave3D).eq.0.and.nstep.ge.nsave3Dstart.and.nstep.le.nsave3Dend ) t
   end if
 
   ! Kuang Ensemble run: turn off mpi after writing 3D output (Song Qiyu, 2022)
-  if(dompiensemble) dompi = .false.
+  if(dompiensemble.or.dompimmf) dompi = .false.
 
 endif
 call t_stopf ('3D_out')

@@ -3,7 +3,7 @@ subroutine pressure
 ! call a pressure solver
 
 use grid
-use params, only: dompiensemble
+use params, only: dompiensemble, dompimmf
 implicit none
 
 call t_startf ('pressure')
@@ -11,7 +11,7 @@ call t_startf ('pressure')
 ! Kuang Ensemble run:
 ! use a modified version of pressure_orig, as done by Song Qiyu (2022)
 ! pressure_orig for Kuang ensemble moved to pressure_kuang by Nathanael Wong (2022)
-if(dompiensemble) then
+if(dompiensemble.or.dompimmf) then
   call pressure_mpiensemble
 else
   if(RUN3D) then
