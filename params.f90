@@ -186,4 +186,11 @@ real:: wavetqdampingtime = 1.
 ! noisy wave
 logical:: donoisywave = .false.
 real:: noiselevel = 0.
+
+
+! MMF Walker Simulation (2D)
+logical:: dompimmf = .false. ! Subdomains defined in domains.f90 are run separately
+
+integer:: nstephostmodel = 99999999 ! evolve the host model every this many steps
+
 end module params
