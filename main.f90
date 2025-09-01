@@ -9,6 +9,7 @@ use sgs
 use tracers
 use movies, only: init_movies
 use params, only: dompiensemble, dompimmf
+use module_hostmodel
 implicit none
 
 integer k, icyc, nn, nstatsteps
@@ -361,6 +362,23 @@ do while(nstep.lt.nstop.and.nelapse.gt.0)
  
    ! Kuang Ensemble run: turn on mpi after each loop (Song Qiyu, 2022)
    if(dompiensemble.or.dompimmf) dompi = .true.
+
+   if(dompimmf) then
+      if(mod(nstep, nstephostmodel).eq.0) then
+         ! collect necessary variables to the master proc
+         ! TODO
+
+         if(masterproc) then
+            ! call host model
+            call host_model_evolve()
+         end if
+
+         ! send necessary variables to all processors
+         ! TODO
+
+
+      end if
+   end if
   
 !----------------------------------------------------------
 
