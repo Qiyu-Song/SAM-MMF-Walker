@@ -12,6 +12,8 @@ use params, only: dompiensemble, dompimmf
 use module_hostmodel
 implicit none
 
+
+
 integer k, icyc, nn, nstatsteps
 double precision cputime, oldtime, init_time, elapsed_time !bloss wallclocktime
 double precision usrtime, systime
@@ -93,6 +95,8 @@ endif
 !   call random_seed(put=seed+iensemble) !reset the random number generator
 !   call ranset_(1000*(iensemble+1)) !run the random number generator for this many times (same across processors) to initialize
 !end if
+
+
 
 call init_movies()
 call stat_2Dinit(1) ! argument of 1 means storage terms in stats are reset
@@ -203,7 +207,16 @@ do while(nstep.lt.nstop.and.nelapse.gt.0)
 !----------------------------------------------------------
 !       Nadging to sounding:
 
-     call nudging()
+     if (dompimmf) then
+          if (nstep .lt. nstephostmodel) then
+              call nudging_hm()
+          else
+               call nudging()
+          end if
+     else
+          call nudging()
+     end if
+     
 
 !----------------------------------------------------------
 !   	spange-layer damping near the upper boundary:
@@ -365,17 +378,8 @@ do while(nstep.lt.nstop.and.nelapse.gt.0)
 
    if(dompimmf) then
       if(mod(nstep, nstephostmodel).eq.0) then
-         ! collect necessary variables to the master proc
-         ! TODO
-
-         if(masterproc) then
-            ! call host model
-            call host_model_evolve()
-         end if
-
-         ! send necessary variables to all processors
-         ! TODO
-
+         
+         call hm_couple_step()
 
       end if
    end if

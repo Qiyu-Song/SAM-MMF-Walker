@@ -225,4 +225,16 @@ real cloudcover(nx,ny)
 ! END UW ADDITIONS
 !===========================================================================
 
+! HOST MODEL
+real wsub_subdomain(nz) = 0.
+real u0_local_hm(nzm)
+real v0_local_hm(nzm)
+real t0_local_hm(nzm)
+real q0_local_hm(nzm)
+
+real ug0_hm(nzm)
+real vg0_hm(nzm)
+real tg0_hm(nzm)
+real qg0_hm(nzm)
+
 end module vars
