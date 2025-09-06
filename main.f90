@@ -12,8 +12,7 @@ use params, only: dompiensemble, dompimmf
 use module_hostmodel
 implicit none
 
-! host model (2025)
-real, allocatable :: wsub_subdomain(:)
+
 
 integer k, icyc, nn, nstatsteps
 double precision cputime, oldtime, init_time, elapsed_time !bloss wallclocktime
@@ -97,11 +96,7 @@ endif
 !   call ranset_(1000*(iensemble+1)) !run the random number generator for this many times (same across processors) to initialize
 !end if
 
-! host model(2025)
-if (dompimmf .and. .not. allocated(wsub_subdomain)) then
-  allocate(wsub_subdomain(nz))
-  wsub_subdomain = 0.0      ! 或者你的自定义初值
-end if
+
 
 call init_movies()
 call stat_2Dinit(1) ! argument of 1 means storage terms in stats are reset
@@ -212,7 +207,16 @@ do while(nstep.lt.nstop.and.nelapse.gt.0)
 !----------------------------------------------------------
 !       Nadging to sounding:
 
-     call nudging()
+     if (dompimmf) then
+          if (nstep .lt. nstephostmodel) then
+              call nudging_hm()
+          else
+               call nudging()
+          end if
+     else
+          call nudging()
+     end if
+     
 
 !----------------------------------------------------------
 !   	spange-layer damping near the upper boundary:
@@ -374,25 +378,8 @@ do while(nstep.lt.nstop.and.nelapse.gt.0)
 
    if(dompimmf) then
       if(mod(nstep, nstephostmodel).eq.0) then
-         ! collect necessary variables to the master proc
-         ! TODO
-         ! collect u0, v0, t0, q0 from each subdomain
-
-         ! put u0, v0, t0, q0 into global maps (nsubdomain_x + extra_x, nsubdomain_y + extra_y, z)  extra 为了方便求导
-
-         ! boundary(maps)? 确保边界条件
-
-
-         if(masterproc) then
-            ! call host model
-            call host_model_evolve()
-         end if
-
-         ! send necessary variables to all processors
-         ! TODO
-         ! 从ex_forcing_hm_map中找到对应column的数据 -> ex_forcing_hm_sd
-
-         ! 用ex_forcing_hm_sd 更新 *g0变量，认为是邻居的信息改变了背景态
+         
+         call hm_couple_step()
 
       end if
    end if

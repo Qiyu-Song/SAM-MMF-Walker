@@ -62,6 +62,9 @@ NAMELIST /KUANG_PARAMS/ dompiensemble, &
                 dosavemultirestart, nrestartstart,&
                 donoisywave, noiselevel, &
                 dompimmf, nstephostmodel
+
+! HOST MODEL (2025.9)
+NAMELIST /HOST_MODEL_PARAMS/ nstephostmodel
                 
 
 !bloss: Create dummy namelist, so that we can figure out error code
