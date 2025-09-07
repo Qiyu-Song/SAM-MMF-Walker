@@ -2,26 +2,46 @@ module module_hostmodel
   use vars
   implicit none
   private
-  public :: host_model_evolve, nudging_hm
+  public :: host_model_init, host_model_finalize, host_model_evolve, nudging_hm
 
-  integer :: hm_step = 0
+ 
 
 contains
 
+subroutine host_model_init()
+  implicit none
+
+  if (.not. allocated(wsub_map)) then
+    allocate(wsub_map(nsx, nz))
+  end if
+
+  if (.not. wsub_inited) then
+    wsub_map = 0.0     ! 设定初值
+    wsub_inited = .true.
+    hm_step = 0
+  end if
+end subroutine host_model_init
+
+
+subroutine host_model_finalize()  !暂时不打算调用
+  implicit none
+  if (allocated(wsub_map)) deallocate(wsub_map)
+  wsub_inited = .false.
+end subroutine host_model_finalize
 
 
 subroutine host_model_evolve( &
-  u0_map, v0_map, wsub_map, t0_map, q0_map,  &
+  u0_in, v0_in, wsub_in, t0_in, q0_in,  &
   rho, rhow, adz, adzw,                    &
   u_hm_map, v_hm_map, w_hm_map, t_hm_map, q_hm_map)
 
   implicit none
   ! -------- 输入（含 ghost） --------
-  real, intent(in) :: u0_map(1:nsx, nzm)
-  real, intent(in) :: v0_map(1:nsx, nzm)
-  real, intent(in) :: wsub_map(1:nsx, nz)
-  real, intent(in) :: t0_map(1:nsx, nzm)
-  real, intent(in) :: q0_map(1:nsx, nzm)
+  real, intent(in) :: u0_in(1:nsx, nzm)
+  real, intent(in) :: v0_in(1:nsx, nzm)
+  real, intent(in) :: wsub_in(1:nsx, nz)
+  real, intent(in) :: t0_in(1:nsx, nzm)
+  real, intent(in) :: q0_in(1:nsx, nzm)
   real, intent(in) :: rho(nzm), rhow(nz), adz(nzm), adzw(nz)
   
 
@@ -37,18 +57,20 @@ subroutine host_model_evolve( &
   real :: p_phys(1:nsx, nzm)    ! 压力势（诊断用，可不输出）
 
   ! 拷贝初值
-  u_hm_map = u0_map
-  v_hm_map = v0_map
-  w_hm_map = wsub_map
-  t_hm_map = t0_map
-  q_hm_map = q0_map
+  u_hm_map = u0_in
+  v_hm_map = v0_in
+  w_hm_map = wsub_in
+  t_hm_map = t0_in
+  q_hm_map = q0_in
+
+  dudt_hm = 0.0; dvdt_hm = 0.0; dwdt_hm = 0.0
 
   ! 1) 动量平流（2D，二阶中心）
   call advect_mom_hm(u_hm_map, v_hm_map, w_hm_map, rho, rhow, adz, adzw, &
                      dudt_hm, dvdt_hm, dwdt_hm, dx_hm, dz_hm)
 
-  ! 2) 压力投影（谱法：x-FFT/DCT + z-三对角）
-  call pressure_hm_spectral(u_hm_map, w_hm_map, rho, rhow, adz, adzw, dt_hm, dx_hm, dz_hm, &
+  ! 2) 压力投影
+  call pressure_hm(u_hm_map, w_hm_map, rho, rhow, adz, adzw, dt_hm, dx_hm, dz_hm, &
                             dudt_hm, dwdt_hm, p_phys)
 
   ! 3) AB 时间推进
@@ -70,7 +92,7 @@ subroutine advect_mom_hm(u_hm_map, v_hm_map, w_hm_map, rho, rhow, adz, adzw, dud
   real, intent(in)  :: rho(nzm), rhow(nz), adz(nzm), adzw(nz)
   real, intent(in)  :: dx_hm, dz_hm                ! dx 为 host 水平间距（列间距）
   ! 输出
-  real, intent(out) :: dudt_hm(nsx, nzm), dvdt_hm(nsx, nzm), dwdt_hm(nsx, nz)
+  real, intent(inout) :: dudt_hm(nsx, nzm), dvdt_hm(nsx, nzm), dwdt_hm(nsx, nz)
 
   ! 局部
   real :: dx25, dz25, irho_w, irho_k, irhow_k
@@ -79,12 +101,10 @@ subroutine advect_mom_hm(u_hm_map, v_hm_map, w_hm_map, rho, rhow, adz, adzw, dud
   integer :: i, ic, k, kc, kb, kcu
 
   !---- 分配并清零
-  allocate(fu(0:nsx, nzm), fv(0:nsx, nzm), fw(0:nsx, nzm))
+  allocate(fu(1:nsx, nzm), fv(1:nsx, nzm), fw(1:nsx, nzm))
   allocate(fuz(1:nsx, nz ), fvz(1:nsx, nz ), fwz(1:nsx, nzm))
   fu = 0.0; fv = 0.0; fw = 0.0
   fuz = 0.0; fvz = 0.0; fwz = 0.0
-
-  dudt_hm = 0.0; dvdt_hm = 0.0; dwdt_hm = 0.0
 
   dx25 = 0.25 / dx_hm         
   dz25 = 1.0  / (4.0*dz_hm)
@@ -94,8 +114,7 @@ subroutine advect_mom_hm(u_hm_map, v_hm_map, w_hm_map, rho, rhow, adz, adzw, dud
     kc  = k + 1
     kcu = min(kc, nzm)
     irho_w = 1.0 / ( rhow(kc) * adzw(kc) )
-    do i = 0, nsx
-      if (i < 1) i = nsx + i
+    do i = 1, nsx
       ic = i + 1
       if (ic > nsx) ic = ic - nsx
       fu(i,k) = dx25 * (u_hm_map(ic,k)+u_hm_map(i,k)) * (u_hm_map(i,k)+u_hm_map(ic,k))
@@ -120,8 +139,9 @@ subroutine advect_mom_hm(u_hm_map, v_hm_map, w_hm_map, rho, rhow, adz, adzw, dud
   do k = 2, nzm
     kb = k - 1
     do i = 1, nsx
-      fuz(i,k) = dz25 * rhow(k) * ( w_hm_map(i,k) + w_hm_map(i-1,k) ) * ( u_hm_map(i,k) + u_hm_map(i,kb) )
-      fvz(i,k) = dz25 * rhow(k) * ( w_hm_map(i,k) + w_hm_map(i-1,k) ) * ( v_hm_map(i,k) + v_hm_map(i,kb) )
+      ic = i - 1; if (ic < 1) ic = nsx + ic
+      fuz(i,k) = dz25 * rhow(k) * ( w_hm_map(i,k) + w_hm_map(ic,k) ) * ( u_hm_map(i,k) + u_hm_map(i,kb) )
+      fvz(i,k) = dz25 * rhow(k) * ( w_hm_map(i,k) + w_hm_map(ic,k) ) * ( v_hm_map(i,k) + v_hm_map(i,kb) )
     end do
   end do
   ! 顶层接口 k = nz (=nzm+1) 自然保持 0
@@ -152,8 +172,8 @@ end subroutine advect_mom_hm
 
 
 
-!================== 压力投影：谱法（x 变换 + z 三对角） ==================
-subroutine pressure_hm_spectral(u_hm_map, w_hm_map, rho, rhow, adz, adzw, dt_hm, dx_hm, dz_hm, &
+!================== 压力投影 ==================
+subroutine pressure_hm(u_hm_map, w_hm_map, rho, rhow, adz, adzw, dt_hm, dx_hm, dz_hm, &
                                 dudt_hm,  dwdt_hm, p_phys)
   use, intrinsic :: iso_fortran_env, only: real64
   implicit none
@@ -200,7 +220,7 @@ subroutine pressure_hm_spectral(u_hm_map, w_hm_map, rho, rhow, adz, adzw, dt_hm,
   ! dta  = 1.0/dt_hm/atc
   ! btat = btc/atc
   ! ctat = ctc/atc
-  ! rdx  = 1.0/dx_hm
+  rdx  = 1.0/dx_hm
 
   ! --------- RHS (press_rhs) — 2D(x,z) 与 SAM 一致的形式 ---------
   do k = 1, nzm
@@ -222,7 +242,7 @@ subroutine pressure_hm_spectral(u_hm_map, w_hm_map, rho, rhow, adz, adzw, dt_hm,
 
       rhs(i,k) = &
         ( rdx*(u_hm_map(ip,k) - u_hm_map(i,k)) + ( w_hm_map(i,k+1)*rup - w_hm_map(i,k)*rdn ) )*dt_hm  &
-      + ( rdx*(dudt_hm(ip,k) - dudt_hm(i,k)) + ( dwdt_hm(i,k+1)*rup - dwdt_hm(i,k)*rdn ) )  &
+      + ( rdx*(dudt_hm(ip,k) - dudt_hm(i,k)) + ( dwdt_hm(i,k+1)*rup - dwdt_hm(i,k)*rdn ) )
       
     end do
   end do
@@ -301,7 +321,7 @@ subroutine pressure_hm_spectral(u_hm_map, w_hm_map, rho, rhow, adz, adzw, dt_hm,
 
 
 
-end subroutine pressure_hm_spectral
+end subroutine pressure_hm
 
 
 !================== Adams–Bashforth 时间推进 ==================
@@ -356,7 +376,7 @@ end subroutine adams_hm
 !================== 标量平流：质量通量上风 ==================
 subroutine advect_scalars_hm(f, u_hm_map, w_hm_map, rho, rhow, adz, adzw, dx_hm, dz_hm, dtloc, clip_nonneg)   !!!原代码里索引有3个ghost
   implicit none
-  ! -------- 接口保持不变 --------
+  
   real, intent(inout) :: f(1:nsx, nzm)
   real, intent(in)    :: u_hm_map(1:nsx, nzm), w_hm_map(1:nsx, nz)
   real, intent(in)    :: rho(nzm), rhow(nz), adz(nzm), adzw(nz)
@@ -364,7 +384,7 @@ subroutine advect_scalars_hm(f, u_hm_map, w_hm_map, rho, rhow, adz, adzw, dx_hm,
   logical, intent(in) :: clip_nonneg
 
   ! -------- 局部变量 --------
-  real :: uuu(0:nsx+1, nzm)         ! x向面通量
+  real :: uuu(1:nsx, nzm)         ! x向面通量
   real :: www(1:nsx, nz)          ! z向界面通量
   real :: irho(nzm), iadz(nzm), irhow(nz)
   real :: dd, eps
@@ -380,7 +400,7 @@ subroutine advect_scalars_hm(f, u_hm_map, w_hm_map, rho, rhow, adz, adzw, dx_hm,
 !========================================================
   eps = 1.e-10
 
-  ! 顶部 w 通量为 0（与 SAM 一致）
+
   do i = 1, nsx
     www(i, nz) = 0.
   end do
@@ -390,8 +410,10 @@ subroutine advect_scalars_hm(f, u_hm_map, w_hm_map, rho, rhow, adz, adzw, dx_hm,
   !========================
   do k = 1, nzm
     kb = max(1, k-1)
-    do i = 1, nsx+1
-      uuu(i, k) = max(0., u_hm_map(i, k))*f(i-1, k) + &
+    do i = 1, nsx
+      ic = i - 1
+      if (ic < 1) ic = nsx + ic
+      uuu(i, k) = max(0., u_hm_map(i, k))*f(ic, k) + &
                   min(0., u_hm_map(i, k))*f(i, k)
     end do
 
@@ -420,7 +442,7 @@ subroutine advect_scalars_hm(f, u_hm_map, w_hm_map, rho, rhow, adz, adzw, dx_hm,
     kc = min(nzm, k+1)
     kb = max(1,   k-1)
     dd = 2. / (kc - kb) / adz(k)
-    irhow(k) = 1. / ( rhow(k) * adzw(k) )
+    irhow(k) = 1. / ( rhow(k) * adz(k) )
 
     
     do i = 1, nsx
@@ -442,7 +464,7 @@ subroutine advect_scalars_hm(f, u_hm_map, w_hm_map, rho, rhow, adz, adzw, dx_hm,
     end do
   end do
 
-  ! 底部边界（与 SAM 同步）
+  ! 底部边界
   do i = 1, nsx
     www(i, 1) = 0.0
   end do
@@ -494,10 +516,10 @@ if(donudging_uv) then
     end do
 endif
 
-coef = 1./tautqls
+coef = 1./dt_hm
 
 if(donudging_tq.or.donudging_t) then
-    coef1 = dtn / tautqls
+    coef1 = dtn / dt_hm
     do k=1,nzm
       if(z(k).ge.nudging_t_z1.and.z(k).le.nudging_t_z2) then
         tnudge(k)=tnudge(k) -(t0_local_hm(k)-tg0_hm(k)-gamaz(k))*coef
@@ -511,7 +533,7 @@ if(donudging_tq.or.donudging_t) then
 endif
 
 if(donudging_tq.or.donudging_q) then
-    coef1 = dtn / tautqls
+    coef1 = dtn / dt_hm
     do k=1,nzm
       if(z(k).ge.nudging_q_z1.and.z(k).le.nudging_q_z2) then
         qnudge(k)=qnudge(k) -(q0_local_hm(k)-qg0_hm(k))*coef

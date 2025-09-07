@@ -226,7 +226,11 @@ real cloudcover(nx,ny)
 !===========================================================================
 
 ! HOST MODEL
-real wsub_subdomain(nz) = 0.
+real, allocatable :: wsub_map(:,:)
+logical :: wsub_inited = .false.
+
+integer :: hm_step = 0
+
 real u0_local_hm(nzm)
 real v0_local_hm(nzm)
 real t0_local_hm(nzm)

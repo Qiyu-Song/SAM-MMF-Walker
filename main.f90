@@ -116,6 +116,14 @@ call stepout(-1)
 nstatis = nstat/nstatfrq
 nstat = nstatis * nstatfrq
 nstatsteps = 0
+
+! HOST MODEL
+if(dompimmf) then
+     if(masterproc) then
+          call host_model_init()
+     end if
+end if
+
 call t_stopf ('initialize')
 !------------------------------------------------------------------
 !   Main time loop    

@@ -314,6 +314,28 @@
 	return
 	end
 
+!----------------------------Host Model---------------------------------  
+  subroutine task_receive_float_tag(buffer,length,request,itag)
+
+	implicit none
+	include 'mpif.h'	
+	
+	real buffer(*)		! buffer of data
+	integer length		! buffers' length
+	integer request
+	integer ierr, real_size
+
+        if(sizeof(buffer(1)).eq.4) then
+         real_size=MPI_REAL
+        else
+         real_size=MPI_REAL8
+        end if
+
+	call MPI_IRECV(buffer,length,real_size,MPI_ANY_SOURCE, &
+		itag,MPI_COMM_WORLD,request,ierr)
+
+	return
+	end
 !----------------------------------------------------------------------
 
         subroutine task_receive_float4(buffer,length,request)
