@@ -315,27 +315,27 @@
 	end
 
 !----------------------------Host Model---------------------------------  
-  subroutine task_receive_float_tag(buffer,length,request,itag)
+  ! subroutine task_receive_float_tag(buffer,length,request,itag)
 
-	implicit none
-	include 'mpif.h'	
+	! implicit none
+	! include 'mpif.h'	
 	
-	real buffer(*)		! buffer of data
-	integer length		! buffers' length
-	integer request
-	integer ierr, real_size
+	! real buffer(*)		! buffer of data
+	! integer length		! buffers' length
+	! integer request
+	! integer ierr, real_size
 
-        if(sizeof(buffer(1)).eq.4) then
-         real_size=MPI_REAL
-        else
-         real_size=MPI_REAL8
-        end if
+  !       if(sizeof(buffer(1)).eq.4) then
+  !        real_size=MPI_REAL
+  !       else
+  !        real_size=MPI_REAL8
+  !       end if
 
-	call MPI_IRECV(buffer,length,real_size,MPI_ANY_SOURCE, &
-		itag,MPI_COMM_WORLD,request,ierr)
+	! call MPI_IRECV(buffer,length,real_size,MPI_ANY_SOURCE, &
+	! 	itag,MPI_COMM_WORLD,request,ierr)
 
-	return
-	end
+	! return
+	! end
 
 
   subroutine task_bgather_float_map(rank_to, sendbuf, length, nrank, map2d)
@@ -348,7 +348,7 @@
   integer, intent(in)  :: length        ! buffer's length
   integer, intent(in)  :: nrank         ! number of ranks
   real,    intent(inout) :: map2d(nrank, length) ! only assigned on rank_to
-  
+
   integer ierr, real_size, rank
   real, allocatable :: tmp_recv(:)   ! 1D temporary buffer on rank_to
 

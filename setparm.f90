@@ -260,6 +260,19 @@ end if
           end if
         end if
 
+        if(dompimmf) then
+          dx_hm = dx * nx
+          dt_hm = dt * nstephostmodel
+          if(masterproc) then
+            write(*,*) '*********************************************************'
+            write(*,*) '  Using the Kuang_Lab Multi-scale Modeling Framework'
+            write(*,*) '  Coupling with a host model.'
+            write(*,*) '  Currently only works with 2D Walker circulation.'
+            write(*,*) '  The host model is run every ', nstephostmodel, ' steps.'
+            write(*,*) '*********************************************************'
+          end if
+        end if
+
         !===============================================================
         ! UW ADDITION
 

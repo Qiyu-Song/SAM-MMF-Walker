@@ -20,7 +20,7 @@ subroutine hm_couple_step()
     real, allocatable :: u0_map(:,:), v0_map(:,:), t0_map(:,:), q0_map(:,:)
     real, allocatable :: u_hm_map(:,:), v_hm_map(:,:), t_hm_map(:,:), q_hm_map(:,:)
     real, allocatable :: w_hm_map(:,:)
-    real, allocatable :: dummy_2d(:,:)
+    real, allocatable :: dummy2d(:,:)
 
     real,    allocatable :: rbuf_zm_hm(:,:)      ! (nzm, nexp_zm_hm)
     integer, allocatable :: reqs_zm_hm(:)
@@ -33,7 +33,7 @@ subroutine hm_couple_step()
                 t_hm_map(nsx, nzm), q_hm_map(nsx, nzm))
         allocate(w_hm_map(nsx, nz))
     else
-        allocate(dummy_2d(nsx, nzm))  ! assign dummy to avoid alloc error
+        allocate(dummy2d(nsx, nzm))  ! assign dummy to avoid alloc error
     end if
 
     ! do k = 1, nzm
@@ -53,27 +53,27 @@ subroutine hm_couple_step()
     q0_local_hm = q0
     ! gather u0
     if (masterproc) then
-        call task_bgather_float_map(root, u0_local_hm(1), nzm, nsx, u0_map, ierr)
+        call task_bgather_float_map(0, u0_local_hm(1), nzm, nsx, u0_map)
     else
-        call task_bgather_float_map(root, u0_local_hm(1), nzm, nsx, dummy2d, ierr)
+        call task_bgather_float_map(0, u0_local_hm(1), nzm, nsx, dummy2d)
     end if
     ! gather v0
     if (masterproc) then
-        call task_bgather_float_map(root, v0_local_hm(1), nzm, nsx, v0_map, ierr)
+        call task_bgather_float_map(0, v0_local_hm(1), nzm, nsx, v0_map)
     else
-        call task_bgather_float_map(root, v0_local_hm(1), nzm, nsx, dummy2d, ierr)
+        call task_bgather_float_map(0, v0_local_hm(1), nzm, nsx, dummy2d)
     end if
     ! gather t0
     if (masterproc) then
-        call task_bgather_float_map(root, t0_local_hm(1), nzm, nsx, t0_map, ierr)
+        call task_bgather_float_map(0, t0_local_hm(1), nzm, nsx, t0_map)
     else
-        call task_bgather_float_map(root, t0_local_hm(1), nzm, nsx, dummy2d, ierr)
+        call task_bgather_float_map(0, t0_local_hm(1), nzm, nsx, dummy2d)
     end if
     ! gather q0
     if (masterproc) then
-        call task_bgather_float_map(root, q0_local_hm(1), nzm, nsx, q0_map, ierr)
+        call task_bgather_float_map(0, q0_local_hm(1), nzm, nsx, q0_map)
     else
-        call task_bgather_float_map(root, q0_local_hm(1), nzm, nsx, dummy2d, ierr)
+        call task_bgather_float_map(0, q0_local_hm(1), nzm, nsx, dummy2d)
     end if
     
     ! if (.not. masterproc) then
@@ -253,7 +253,7 @@ subroutine hm_couple_step()
         if (allocated(q_hm_map))  deallocate(q_hm_map)  
         if (allocated(w_hm_map))  deallocate(w_hm_map)  
     else
-        if (allocated(dummy_2d))  deallocate(dummy_2d)
+        if (allocated(dummy2d))  deallocate(dummy2d)
     end if
 
 end subroutine hm_couple_step

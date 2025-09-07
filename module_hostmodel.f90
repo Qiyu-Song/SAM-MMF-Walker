@@ -54,7 +54,7 @@ subroutine host_model_evolve( &
 
   ! -------- 局部 --------
   real :: dudt_hm(nsx, nzm), dvdt_hm(nsx, nzm), dwdt_hm(nsx, nz)
-  real :: p_phys(1:nsx, nzm)    ! 压力势（诊断用，可不输出）
+  real :: p_phys(nsx, nzm)    ! 压力势（诊断用，可不输出）
 
   ! 拷贝初值
   u_hm_map = u0_in
@@ -67,18 +67,18 @@ subroutine host_model_evolve( &
 
   ! 1) 动量平流（2D，二阶中心）
   call advect_mom_hm(u_hm_map, v_hm_map, w_hm_map, rho, rhow, adz, adzw, &
-                     dudt_hm, dvdt_hm, dwdt_hm, dx_hm, dz_hm)
+                     dudt_hm, dvdt_hm, dwdt_hm, dx_hm, dz)
 
   ! 2) 压力投影
-  call pressure_hm(u_hm_map, w_hm_map, rho, rhow, adz, adzw, dt_hm, dx_hm, dz_hm, &
+  call pressure_hm(u_hm_map, w_hm_map, rho, rhow, adz, adzw, dt_hm, dx_hm, dz, &
                             dudt_hm, dwdt_hm, p_phys)
 
   ! 3) AB 时间推进
   call adams_hm(u_hm_map, v_hm_map, w_hm_map, dudt_hm, dvdt_hm, dwdt_hm)
 
   ! 4) 标量平流（上风，正定）
-  call advect_scalars_hm(t_hm_map, u_hm_map, w_hm_map, rho, rhow, adz, adzw, dx_hm, dz_hm, dt_hm, .false.)
-  call advect_scalars_hm(q_hm_map, u_hm_map, w_hm_map, rho, rhow, adz, adzw, dx_hm, dz_hm, dt_hm, .true.)
+  call advect_scalars_hm(t_hm_map, u_hm_map, w_hm_map, rho, rhow, adz, adzw, dx_hm, dz, dt_hm, .false.)
+  call advect_scalars_hm(q_hm_map, u_hm_map, w_hm_map, rho, rhow, adz, adzw, dx_hm, dz, dt_hm, .true.)
 
  
 end subroutine host_model_evolve
@@ -186,7 +186,7 @@ subroutine pressure_hm(u_hm_map, w_hm_map, rho, rhow, adz, adzw, dt_hm, dx_hm, d
 
   real, intent(inout) :: dudt_hm(nsx, nzm),  dwdt_hm(nsx, nz)
 
-  real, intent(out)   :: p_phys(0:nsx, nzm)
+  real, intent(out)   :: p_phys(nsx, nzm)
 
   real :: rhs(1:nsx, nzm)
   integer, parameter :: nx2 = nsx + 2

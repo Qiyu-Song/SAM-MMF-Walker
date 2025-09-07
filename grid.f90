@@ -199,10 +199,8 @@ logical:: dosavemultirestart=.false.
 real ttend_wavenoise(nzm),qtend_wavenoise(nzm)
 
 ! HOST MODEL (2025.9)
-integer:: nstephostmodel = 45
-integer, parameter :: nsx   = nsubdomains_x
-integer, parameter :: dx_hm = dx * nx
-integer, parameter :: dz_hm = dz
-integer, parameter :: dt_hm = dt * nstephostmodel
+integer, parameter :: nsx = nsubdomains_x
+real dx_hm
+real dt_hm
 
 end module grid
