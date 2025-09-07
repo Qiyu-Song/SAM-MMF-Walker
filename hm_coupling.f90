@@ -20,97 +20,135 @@ subroutine hm_couple_step()
     real, allocatable :: u0_map(:,:), v0_map(:,:), t0_map(:,:), q0_map(:,:)
     real, allocatable :: u_hm_map(:,:), v_hm_map(:,:), t_hm_map(:,:), q_hm_map(:,:)
     real, allocatable :: w_hm_map(:,:)
+    real, allocatable :: dummy_2d(:,:)
 
     real,    allocatable :: rbuf_zm_hm(:,:)      ! (nzm, nexp_zm_hm)
     integer, allocatable :: reqs_zm_hm(:)
     logical, allocatable :: done_zm_hm(:)
 
-
-
-    do k = 1, nzm
-        u0_local_hm(k) = sum( u(1:nx,1:ny,k) ) / real(nx*ny)   !! nx是每个subdomain里的x格点数
-        v0_local_hm(k) = sum( v(1:nx,1:ny,k) ) / real(nx*ny)
-        t0_local_hm(k) = sum( t(1:nx,1:ny,k) ) / real(nx*ny)
-        q0_local_hm(k) = sum( micro_field(1:nx,1:ny,k,index_water_vapor) ) / real(nx*ny)
-    end do
-
-    
-    if (.not. masterproc) then
-        call task_bsend_float(0, u0_local_hm(1), nzm, 101)
-        call task_bsend_float(0, v0_local_hm(1), nzm, 102)
-        call task_bsend_float(0, t0_local_hm(1), nzm, 103)
-        call task_bsend_float(0, q0_local_hm(1), nzm, 104)
-
-    end if
-
-
     if (masterproc) then
-
         allocate(u0_map(nsx, nzm), v0_map(nsx, nzm),  &
                 t0_map(nsx, nzm), q0_map(nsx, nzm))
         allocate(u_hm_map(nsx, nzm), v_hm_map(nsx, nzm),  &
                 t_hm_map(nsx, nzm), q_hm_map(nsx, nzm))
         allocate(w_hm_map(nsx, nz))
+    else
+        allocate(dummy_2d(nsx, nzm))  ! assign dummy to avoid alloc error
+    end if
+
+    ! do k = 1, nzm
+    !     u0_local_hm(k) = sum( u(1:nx,1:ny,k) ) / real(nx*ny)   !! nx是每个subdomain里的x格点数
+    !     v0_local_hm(k) = sum( v(1:nx,1:ny,k) ) / real(nx*ny)
+    !     t0_local_hm(k) = sum( t(1:nx,1:ny,k) ) / real(nx*ny)
+    !     q0_local_hm(k) = sum( micro_field(1:nx,1:ny,k,index_water_vapor) ) / real(nx*ny)
+    ! end do
+
+    ! u0, v0, t0, q0 were calculated in diagnose.f90 for each subdomain
+    ! here we gather them to the masterproc (rank=0) for host model coupling
+    ! then the masterproc will distribute the results back to each subdomain
+
+    u0_local_hm = u0
+    v0_local_hm = v0
+    t0_local_hm = t0
+    q0_local_hm = q0
+    ! gather u0
+    if (masterproc) then
+        call task_bgather_float_map(root, u0_local_hm(1), nzm, nsx, u0_map, ierr)
+    else
+        call task_bgather_float_map(root, u0_local_hm(1), nzm, nsx, dummy2d, ierr)
+    end if
+    ! gather v0
+    if (masterproc) then
+        call task_bgather_float_map(root, v0_local_hm(1), nzm, nsx, v0_map, ierr)
+    else
+        call task_bgather_float_map(root, v0_local_hm(1), nzm, nsx, dummy2d, ierr)
+    end if
+    ! gather t0
+    if (masterproc) then
+        call task_bgather_float_map(root, t0_local_hm(1), nzm, nsx, t0_map, ierr)
+    else
+        call task_bgather_float_map(root, t0_local_hm(1), nzm, nsx, dummy2d, ierr)
+    end if
+    ! gather q0
+    if (masterproc) then
+        call task_bgather_float_map(root, q0_local_hm(1), nzm, nsx, q0_map, ierr)
+    else
+        call task_bgather_float_map(root, q0_local_hm(1), nzm, nsx, dummy2d, ierr)
+    end if
+    
+    ! if (.not. masterproc) then
+    !     call task_bsend_float(0, u0_local_hm(1), nzm, 101)
+    !     call task_bsend_float(0, v0_local_hm(1), nzm, 102)
+    !     call task_bsend_float(0, t0_local_hm(1), nzm, 103)
+    !     call task_bsend_float(0, q0_local_hm(1), nzm, 104)
+    ! 
+    ! end if
+
+    if (masterproc) then
+
+        ! allocate(u0_map(nsx, nzm), v0_map(nsx, nzm),  &
+        !         t0_map(nsx, nzm), q0_map(nsx, nzm))
+        ! allocate(u_hm_map(nsx, nzm), v_hm_map(nsx, nzm),  &
+        !         t_hm_map(nsx, nzm), q_hm_map(nsx, nzm))
+        ! allocate(w_hm_map(nsx, nz))
         
 
-        ! master 自己这一列先放进去
-        u0_map(1,:)   = u0_local_hm(:)
-        v0_map(1,:)   = v0_local_hm(:)
-        t0_map(1,:)   = t0_local_hm(:)
-        q0_map(1,:)   = q0_local_hm(:)
+        ! ! master 自己这一列先放进去
+        ! u0_map(1,:)   = u0_local_hm(:)
+        ! v0_map(1,:)   = v0_local_hm(:)
+        ! t0_map(1,:)   = t0_local_hm(:)
+        ! q0_map(1,:)   = q0_local_hm(:)
 
 
-        ! 其余需要接收的消息数
-        nother_hm  = max(0, nsx-1)
-        nexp_zm_hm = nother_hm * 4          ! u/v/t/q, 每列 4 条，长度 nzm
+        ! ! 其余需要接收的消息数
+        ! nother_hm  = max(0, nsx-1)
+        ! nexp_zm_hm = nother_hm * 4          ! u/v/t/q, 每列 4 条，长度 nzm
 
 
-        if (nexp_zm_hm > 0) then
-            if (nexp_zm_hm > 0) then
-                allocate(rbuf_zm_hm(nzm, nexp_zm_hm), reqs_zm_hm(nexp_zm_hm), done_zm_hm(nexp_zm_hm))
-                done_zm_hm = .false.
-            end if
+        ! if (nexp_zm_hm > 0) then
+        !     allocate(rbuf_zm_hm(nzm, nexp_zm_hm), reqs_zm_hm(nexp_zm_hm), done_zm_hm(nexp_zm_hm))
+        !     done_zm_hm = .false.
             
 
-            jzm = 0
-            do is_hm = 2, nsx
-                if (nexp_zm_hm > 0) then
-                    jzm=jzm+1; call task_receive_float_tag(rbuf_zm_hm(1,jzm), nzm, reqs_zm_hm(jzm),101)  ! 101
-                    jzm=jzm+1; call task_receive_float_tag(rbuf_zm_hm(1,jzm), nzm, reqs_zm_hm(jzm),102)  ! 102
-                    jzm=jzm+1; call task_receive_float_tag(rbuf_zm_hm(1,jzm), nzm, reqs_zm_hm(jzm),103)  ! 103
-                    jzm=jzm+1; call task_receive_float_tag(rbuf_zm_hm(1,jzm), nzm, reqs_zm_hm(jzm),104)  ! 104
-                end if  
-            end do
+        !     jzm = 0
+        !     do is_hm = 2, nsx
+        !         if (nexp_zm_hm > 0) then
+        !             jzm=jzm+1; call task_receive_float_tag(rbuf_zm_hm(1,jzm), nzm, reqs_zm_hm(jzm),101)  ! 101
+        !             jzm=jzm+1; call task_receive_float_tag(rbuf_zm_hm(1,jzm), nzm, reqs_zm_hm(jzm),102)  ! 102
+        !             jzm=jzm+1; call task_receive_float_tag(rbuf_zm_hm(1,jzm), nzm, reqs_zm_hm(jzm),103)  ! 103
+        !             jzm=jzm+1; call task_receive_float_tag(rbuf_zm_hm(1,jzm), nzm, reqs_zm_hm(jzm),104)  ! 104
+        !         end if  
+        !     end do
 
-            ! 2) 轮询直到全部完成；按 tag_hm+来源 rf_hm 分拣
+        !     ! 2) 轮询直到全部完成；按 tag_hm+来源 rf_hm 分拣
             
-            cnt_zm = nexp_zm_hm
+        !     cnt_zm = nexp_zm_hm
 
-            do while (cnt_zm > 0)
-                if (nexp_zm_hm > 0) then
-                    do ireq_hm = 1, nexp_zm_hm
-                        if (.not. done_zm_hm(ireq_hm)) then
-                            call task_test(reqs_zm_hm(ireq_hm), done_zm_hm(ireq_hm), rf_hm, tag_hm)  ! 返回rf_hm(rank), tag_hm
-                            if (done_zm_hm(ireq_hm)) then
-                                is_hm = rf_hm + 1
-                                select case (tag_hm)
-                                case (101); u0_map(is_hm,:) = rbuf_zm_hm(:,ireq_hm)
-                                case (102); v0_map(is_hm,:) = rbuf_zm_hm(:,ireq_hm)
-                                case (103); t0_map(is_hm,:) = rbuf_zm_hm(:,ireq_hm)
-                                case (104); q0_map(is_hm,:) = rbuf_zm_hm(:,ireq_hm)
-                                case default
-                                    ! 忽略与 nzm 组不匹配的 tag_hm（理论上不会来 105）
-                                end select
-                                cnt_zm = cnt_zm - 1
-                            end if
-                        end if
-                    end do
-                end if
-            end do
+        !     do while (cnt_zm > 0)
+        !         if (nexp_zm_hm > 0) then
+        !             do ireq_hm = 1, nexp_zm_hm
+        !                 if (.not. done_zm_hm(ireq_hm)) then
+        !                     call task_test(reqs_zm_hm(ireq_hm), done_zm_hm(ireq_hm), rf_hm, tag_hm)  ! 返回rf_hm(rank), tag_hm
+        !                     if (done_zm_hm(ireq_hm)) then
+        !                         is_hm = rf_hm + 1
+        !                         select case (tag_hm)
+        !                         case (101); u0_map(is_hm,:) = rbuf_zm_hm(:,ireq_hm)
+        !                         case (102); v0_map(is_hm,:) = rbuf_zm_hm(:,ireq_hm)
+        !                         case (103); t0_map(is_hm,:) = rbuf_zm_hm(:,ireq_hm)
+        !                         case (104); q0_map(is_hm,:) = rbuf_zm_hm(:,ireq_hm)
+        !                         case default
+        !                             ! 忽略与 nzm 组不匹配的 tag_hm（理论上不会来 105）
+        !                         end select
+        !                         cnt_zm = cnt_zm - 1
+        !                     end if
+        !                 end if
+        !             end do
+        !         end if
+        !     end do
 
-            if (nexp_zm_hm > 0) deallocate(rbuf_zm_hm, reqs_zm_hm, done_zm_hm)
+        !     if (nexp_zm_hm > 0) deallocate(rbuf_zm_hm, reqs_zm_hm, done_zm_hm)
 
-        end if  ! 有需要接收的
+        ! end if  ! 有需要接收的
 
         ! ==== 至此，u0_map/v0_map/t0_map/q0_map/wsub_map 都齐了 ====
 
@@ -123,63 +161,99 @@ subroutine hm_couple_step()
                             u_hm_map=u_hm_map, v_hm_map=v_hm_map,            &
                             w_hm_map=w_hm_map, t_hm_map=t_hm_map, q_hm_map=q_hm_map )
 
-        ug0_hm(1:nzm)          = u_hm_map(1,1:nzm)
-        vg0_hm(1:nzm)          = v_hm_map(1,1:nzm)
-        tg0_hm(1:nzm)          = t_hm_map(1,1:nzm)
-        qg0_hm(1:nzm)          = q_hm_map(1,1:nzm)
-        wsub_map(:, :)         = w_hm_map(:, :)
+        ! ug0_hm(1:nzm)          = u_hm_map(1,1:nzm)
+        ! vg0_hm(1:nzm)          = v_hm_map(1,1:nzm)
+        ! tg0_hm(1:nzm)          = t_hm_map(1,1:nzm)
+        ! qg0_hm(1:nzm)          = q_hm_map(1,1:nzm)
+        ! wsub_map(:, :)         = w_hm_map(:, :)
        
 
-        !----------------send back to subdomains---------------------------
-        do m = 1, nsubdomains-1  ! m=0是master本身
-            sendbuf(:) = u_hm_map(m+1,1:nzm)
-            call task_bsend_float(m, sendbuf(1), nzm, 301)
-            sendbuf(:) = v_hm_map(m+1,1:nzm)
-            call task_bsend_float(m, sendbuf(1), nzm, 302)
-            sendbuf(:) = t_hm_map(m+1,1:nzm)
-            call task_bsend_float(m, sendbuf(1), nzm, 303)
-            sendbuf(:) = q_hm_map(m+1,1:nzm)
-            call task_bsend_float(m, sendbuf(1), nzm, 304)
+        ! !----------------send back to subdomains---------------------------
+        ! do m = 1, nsubdomains-1  ! m=0是master本身
+        !     sendbuf(:) = u_hm_map(m+1,1:nzm)
+        !     call task_bsend_float(m, sendbuf(1), nzm, 301)
+        !     sendbuf(:) = v_hm_map(m+1,1:nzm)
+        !     call task_bsend_float(m, sendbuf(1), nzm, 302)
+        !     sendbuf(:) = t_hm_map(m+1,1:nzm)
+        !     call task_bsend_float(m, sendbuf(1), nzm, 303)
+        !     sendbuf(:) = q_hm_map(m+1,1:nzm)
+        !     call task_bsend_float(m, sendbuf(1), nzm, 304)
             
-        end do
-
-        !------------- 清理分配的缓冲 -------------
-
-        deallocate(u0_map, v0_map, t0_map, q0_map)
-        deallocate(u_hm_map, v_hm_map, t_hm_map, q_hm_map)
-        deallocate(w_hm_map)
+        ! end do
 
     end if  ! masterproc
 
-    !------------------------------------------------------------
-    ! 非 master
-    !------------------------------------------------------------
-    if (.not. masterproc) then
+    ! distribute ug0_hm
+    if (masterproc) then
+        call task_bscatter_float_map(0, u_hm_map, nzm, nsx, ug0_hm(1))
+    else
+        call task_bscatter_float_map(0, dummy2d,  nzm, nsx, ug0_hm(1))
+    end if
+    ! distribute vg0_hm
+    if (masterproc) then
+        call task_bscatter_float_map(0, v_hm_map, nzm, nsx, vg0_hm(1))
+    else
+        call task_bscatter_float_map(0, dummy2d,  nzm, nsx, vg0_hm(1))
+    end if
+    ! distribute tg0_hm
+    if (masterproc) then
+        call task_bscatter_float_map(0, t_hm_map, nzm, nsx, tg0_hm(1))
+    else
+        call task_bscatter_float_map(0, dummy2d,  nzm, nsx, tg0_hm(1))
+    end if
+    ! distribute qg0_hm
+    if (masterproc) then
+        call task_bscatter_float_map(0, q_hm_map, nzm, nsx, qg0_hm(1))
+    else
+        call task_bscatter_float_map(0, dummy2d,  nzm, nsx, qg0_hm(1))
+    end if
+
+    ! !------------------------------------------------------------
+    ! ! 非 master
+    ! !------------------------------------------------------------
+    ! if (.not. masterproc) then
         
 
-        ! 先挂五个非阻塞接收（必须先接收再发送以避免死锁；master 端按顺序 bsend）
-        call task_receive_float_tag(ucol, nzm, req_u,301)  ! tag_hm=301
-        call task_receive_float_tag(vcol, nzm, req_v,302)  ! tag_hm=302
-        call task_receive_float_tag(tcol, nzm, req_t,303)  ! tag_hm=303
-        call task_receive_float_tag(qcol, nzm, req_q,304)  ! tag_hm=304
+    !     ! 先挂五个非阻塞接收（必须先接收再发送以避免死锁；master 端按顺序 bsend）
+    !     call task_receive_float_tag(ucol, nzm, req_u,301)  ! tag_hm=301
+    !     call task_receive_float_tag(vcol, nzm, req_v,302)  ! tag_hm=302
+    !     call task_receive_float_tag(tcol, nzm, req_t,303)  ! tag_hm=303
+    !     call task_receive_float_tag(qcol, nzm, req_q,304)  ! tag_hm=304
 
 
-        ! 轮询全部完成
-        nleft = 4
-        do while (nleft > 0)
-            call task_test(req_u, done, rf_hm, tag_hm); if (done .and. req_u .ne. -1) then; req_u = -1; nleft = nleft - 1; end if
-            call task_test(req_v, done, rf_hm, tag_hm); if (done .and. req_v .ne. -1) then; req_v = -1; nleft = nleft - 1; end if
-            call task_test(req_t, done, rf_hm, tag_hm); if (done .and. req_t .ne. -1) then; req_t = -1; nleft = nleft - 1; end if
-            call task_test(req_q, done, rf_hm, tag_hm); if (done .and. req_q .ne. -1) then; req_q = -1; nleft = nleft - 1; end if
+    !     ! 轮询全部完成
+    !     nleft = 4
+    !     do while (nleft > 0)
+    !         call task_test(req_u, done, rf_hm, tag_hm); if (done .and. req_u .ne. -1) then; req_u = -1; nleft = nleft - 1; end if
+    !         call task_test(req_v, done, rf_hm, tag_hm); if (done .and. req_v .ne. -1) then; req_v = -1; nleft = nleft - 1; end if
+    !         call task_test(req_t, done, rf_hm, tag_hm); if (done .and. req_t .ne. -1) then; req_t = -1; nleft = nleft - 1; end if
+    !         call task_test(req_q, done, rf_hm, tag_hm); if (done .and. req_q .ne. -1) then; req_q = -1; nleft = nleft - 1; end if
             
-        end do
+    !     end do
 
         
-        ug0_hm(1:nzm)           = ucol(1:nzm)
-        vg0_hm(1:nzm)           = vcol(1:nzm)
-        tg0_hm(1:nzm)           = tcol(1:nzm)
-        qg0_hm(1:nzm)           = qcol(1:nzm)
+    !     ug0_hm(1:nzm)           = ucol(1:nzm)
+    !     vg0_hm(1:nzm)           = vcol(1:nzm)
+    !     tg0_hm(1:nzm)           = tcol(1:nzm)
+    !     qg0_hm(1:nzm)           = qcol(1:nzm)
 
+    ! end if
+
+    !------------------------------------------------------------
+    ! clean up
+    !------------------------------------------------------------
+    if (masterproc) then
+        if (allocated(u0_map))    deallocate(u0_map)
+        if (allocated(v0_map))    deallocate(v0_map)
+        if (allocated(t0_map))    deallocate(t0_map)
+        if (allocated(q0_map))    deallocate(q0_map)
+        if (allocated(u_hm_map))  deallocate(u_hm_map)  
+        if (allocated(v_hm_map))  deallocate(v_hm_map)  
+        if (allocated(t_hm_map))  deallocate(t_hm_map)  
+        if (allocated(q_hm_map))  deallocate(q_hm_map)  
+        if (allocated(w_hm_map))  deallocate(w_hm_map)  
+    else
+        if (allocated(dummy_2d))  deallocate(dummy_2d)
     end if
 
 end subroutine hm_couple_step

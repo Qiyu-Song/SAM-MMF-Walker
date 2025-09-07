@@ -336,6 +336,88 @@
 
 	return
 	end
+
+
+  subroutine task_bgather_float_map(rank_to, sendbuf, length, nrank, map2d)
+  
+  implicit none
+  include 'mpif.h'
+
+  integer, intent(in)  :: rank_to       ! receiving task's rank (usually 0)
+  real,    intent(in)  :: sendbuf(*)    ! buffer of data to send
+  integer, intent(in)  :: length        ! buffer's length
+  integer, intent(in)  :: nrank         ! number of ranks
+  real,    intent(inout) :: map2d(nrank, length) ! only assigned on rank_to
+  
+  integer ierr, real_size, rank
+  real, allocatable :: tmp_recv(:)   ! 1D temporary buffer on rank_to
+
+  call MPI_Comm_rank(MPI_COMM_WORLD, rank, ierr)
+
+  if(sizeof(sendbuf(1)).eq.4) then
+    real_size=MPI_REAL
+  else
+    real_size=MPI_REAL8
+  end if
+
+  if (rank == rank_to) then
+    allocate(tmp_recv(length*nrank))
+  else
+    allocate(tmp_recv(1)) ! allocate a dummy array for non-rank_to ranks
+  end if
+
+  call MPI_Gather(sendbuf, length, real_size, &
+                  tmp_recv, length, real_size, rank_to, MPI_COMM_WORLD, ierr)
+
+  if (rank == rank_to) then
+    ! reshape the 1D received array into 2D map
+    map2d = transpose( reshape(tmp_recv, [length, nrank]) )
+  end if
+
+  deallocate(tmp_recv)
+  return
+	end
+
+
+  subroutine task_bscatter_float_map(rank_from, map2d, length, nrank, recvbuf)
+  implicit none
+  include 'mpif.h'
+
+  integer, intent(in)    :: rank_from        ! 发送的根进程（通常 0）
+  real,    intent(in)    :: map2d(nrank, length) ! 仅在 rank_from 有效：按行存各 rank 的数据
+  integer, intent(in)    :: length           ! 每个进程的数据长度
+  integer, intent(in)    :: nrank            ! 进程总数
+  real,    intent(out)   :: recvbuf(*)       ! 本进程接收缓冲（长度 = length）
+
+  integer :: ierr, real_size, rank
+  real, allocatable :: tmp_send(:)   ! 根上的一维打包缓冲；非根占位
+
+  call MPI_Comm_rank(MPI_COMM_WORLD, rank, ierr)
+
+  ! 按您的写法判断精度（保持与现有代码一致）
+  if (sizeof(recvbuf(1)) .eq. 4) then
+    real_size = MPI_REAL
+  else
+    real_size = MPI_REAL8   ! 若想更可移植，建议用 MPI_DOUBLE_PRECISION
+  end if
+
+  if (rank == rank_from) then
+    allocate(tmp_send(length * nrank))
+    ! 将 map2d 的每一行（对应各 rank）按顺序打包成连续块：
+    ! [map2d(1,1:length), map2d(2,1:length), ..., map2d(nrank,1:length)]
+    tmp_send = reshape( transpose(map2d), [length * nrank] )
+  else
+    allocate(tmp_send(1))   ! 非根仅作占位，MPI 不会访问
+  end if
+
+  call MPI_Scatter( tmp_send, length, real_size, &
+                    recvbuf,  length, real_size, rank_from, MPI_COMM_WORLD, ierr )
+
+  deallocate(tmp_send)
+  return
+  end
+
+
 !----------------------------------------------------------------------
 
         subroutine task_receive_float4(buffer,length,request)
