@@ -54,6 +54,8 @@ subroutine host_model_evolve( &
 
   ! -------- 局部 --------
   real :: dudt_hm(nsx, nzm), dvdt_hm(nsx, nzm), dwdt_hm(nsx, nz)
+  ! for advection of scalars
+  real :: u1_hm_map(nsx, nzm), v1_hm_map(nsx, nzm), w1_hm_map(nsx, nz)
   real :: p_phys(nsx, nzm)    ! 压力势（诊断用，可不输出）
 
   ! 拷贝初值
@@ -74,11 +76,12 @@ subroutine host_model_evolve( &
                             dudt_hm, dwdt_hm, p_phys)
 
   ! 3) AB 时间推进
-  call adams_hm(u_hm_map, v_hm_map, w_hm_map, dudt_hm, dvdt_hm, dwdt_hm)
+  call adams_hm(u_hm_map, v_hm_map, w_hm_map, dudt_hm, dvdt_hm, dwdt_hm, &
+                  u1_hm_map, v1_hm_map, w1_hm_map, dt_hm, dx_hm, dz)
 
   ! 4) 标量平流（上风，正定）
-  call advect_scalars_hm(t_hm_map, u_hm_map, w_hm_map, rho, rhow, adz, adzw, dx_hm, dz, dt_hm, .false.)
-  call advect_scalars_hm(q_hm_map, u_hm_map, w_hm_map, rho, rhow, adz, adzw, dx_hm, dz, dt_hm, .true.)
+  call advect_scalars_hm(t_hm_map, u1_hm_map, w1_hm_map, rho, rhow, adz, adzw, dx_hm, dz, dt_hm, .false.)
+  call advect_scalars_hm(q_hm_map, u1_hm_map, w1_hm_map, rho, rhow, adz, adzw, dx_hm, dz, dt_hm, .true.)
 
  
 end subroutine host_model_evolve
@@ -322,11 +325,14 @@ end subroutine pressure_hm
 
 
 !================== Adams–Bashforth 时间推进 ==================
-subroutine adams_hm(u, v, w, dudt_hm, dvdt_hm, dwdt_hm)
+subroutine adams_hm(u, v, w, dudt_hm, dvdt_hm, dwdt_hm, u1, v1, w1, dt_hm, dx_hm, dz_hm)
   implicit none
-  real, intent(inout) :: u(1:nsx, nzm), v(1:nsx, nzm), w(1:nsx, nz)
+  real, intent(inout) :: u(nsx, nzm), v(nsx, nzm), w(nsx, nz)
   real, intent(in)    :: dudt_hm(nsx, nzm), dvdt_hm(nsx, nzm), dwdt_hm(nsx, nz)
+  real, intent(out)   :: u1(nsx, nzm), v1(nsx, nzm), w1(nsx, nz)
+  real, intent(in)    :: dt_hm, dx_hm, dz_hm
   real :: at, bt, ct
+  real :: dtdx, dtdz, rhox, rhoy, rhoz , a1, a2
   integer :: i,k
 
   hm_step = hm_step + 1
@@ -360,12 +366,35 @@ subroutine adams_hm(u, v, w, dudt_hm, dvdt_hm, dwdt_hm)
   !   w(i,k) = w(i,k) + dt_hm*( at*dwdt_hm_hist(i,k,1) + bt*dwdt_hm_hist(i,k,2) + ct*dwdt_hm_hist(i,k,3) )  !原代码只更新到nzm
   ! end do; end do
 
-  do k=1,nzm; do i=1,nsx
-    u(i,k) = u(i,k) + dt_hm*dudt_hm(i,k) 
-    v(i,k) = v(i,k) + dt_hm*dvdt_hm(i,k)
-    w(i,k) = w(i,k) + dt_hm*dwdt_hm(i,k)
-  end do; end do
+  u1(:,:) = u(:,:)
+  v1(:,:) = v(:,:)
+  w1(:,:) = w(:,:)
 
+  do k=1,nzm; do i=1,nsx
+    u(i,k) = u1(i,k) + dt_hm*dudt_hm(i,k) 
+    v(i,k) = v1(i,k) + dt_hm*dvdt_hm(i,k)
+    w(i,k) = w1(i,k) + dt_hm*dwdt_hm(i,k)
+  end do; end do
+  
+  ! compute time averaged velocties for second-order advection of scalars:
+  dtdx = dtn/dx_hm
+  dtdz = dtn/dz_hm
+  a1 = 0.5
+  a2 = 0.5
+  if(hm_step.eq.1) then
+    a1 = 1.
+    a2 = 0.
+  end if
+
+  do k=1,nzm
+    rhox = rho(k)*dtdx
+    rhoz = rhow(k)*dtdz
+    do i=1,nsx
+      u1(i,k) = (a1*u(i,k)+a2*u1(i,k))*rhox
+      v1(i,k) = (a1*v(i,k)+a2*v1(i,k))*rhox ! assume dx_hm = dy_hm
+      w1(i,k) = (a1*w(i,k)+a2*w1(i,k))*rhoz
+    end do
+  end do
 
 end subroutine adams_hm
 
