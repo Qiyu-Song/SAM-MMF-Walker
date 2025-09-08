@@ -186,17 +186,17 @@ subroutine pressure_hm(u_hm_map, w_hm_map, rho, rhow, adz, adzw, dt_hm, dx_hm, d
   integer, parameter :: nx2 = nsx + 2
 
   ! x 向变换的工作数组
-  real(real64) :: F(nx2, nzm), WORK(nx2,1), trigx(3*nsx/2+1)
+  real(8) :: F(nx2, nzm), WORK(nx2,1), trigx(3*nsx/2+1)
   integer :: ifax(100)
 
   ! 竖直三对角系数与谱特征值
-  real(real64) :: a(nzm), c(nzm), eigx, ddx2, pii, factx
-  real(real64) :: alfa(nzm-1), beta(nzm-1), fline(nzm), denom
+  real(8) :: a(nzm), c(nzm), eigx, ddx2, pii, factx
+  real(8) :: alfa(nzm-1), beta(nzm-1), fline(nzm), denom
 
   ! AB 系数与 press_rhs 系数
   real :: atc, btc, ctc, dta, btat, ctat, rdx, rdz, rup, rdn
 
-  integer :: i, k, kx, ip, im
+  integer :: i, k, kx, ip, im, id
   integer :: stage
 
 
@@ -242,17 +242,6 @@ subroutine pressure_hm(u_hm_map, w_hm_map, rho, rhow, adz, adzw, dt_hm, dx_hm, d
   end do
   ! --------- end RHS ---------   
 
-
-  ! --------- 构造 z 向三对角系数 ---------  
-  do k = 1, nzm
-    a(k) = rhow(k  ) /( rho(k)*adz(k)*adzw(k  ) * dz_hm*dz_hm )
-    c(k) = rhow(k+1) /( rho(k)*adz(k)*adzw(k+1) * dz_hm*dz_hm )
-  end do
-
-  ddx2 = 1._8/(dx_hm*dx_hm)
-  pii  = acos(-1._8)
-  factx= 2.d0
-
   call fftfax_crm(nsx, ifax, trigx)   
 
   ! --------- x 正变换 ---------
@@ -261,15 +250,27 @@ subroutine pressure_hm(u_hm_map, w_hm_map, rho, rhow, adz, adzw, dt_hm, dx_hm, d
     call fft991_crm(F(1,k), WORK, trigx, ifax, 1, nx2, nsx, 1, -1) 
   end do
 
+  ! --------- 构造 z 向三对角系数 ---------  
+  ! assuming dowallx = .false., dowally = .false.
+  do k = 1, nzm
+    a(k) = rhow(k  ) /( rho(k)*adz(k)*adzw(k  ) * dz_hm*dz_hm )
+    c(k) = rhow(k+1) /( rho(k)*adz(k)*adzw(k+1) * dz_hm*dz_hm )
+  end do
+
+  ddx2 = 1._8/(dx_hm*dx_hm)
+  pii  = acos(-1._8)
+  xnx=pii/nx_gl
+  factx= 2.d0
+
   ! --------- 对每个 kx 解竖直三对角 ---------
-  do kx = 0, nsx-1                      !这里和SAM 不太一样
-    eigx = (2._8*cos(factx*pii*kx/nsx) - 2._8)*ddx2
+  do i = 1, nsx+1
+    id = (i-0.1)/2.
+    xi = id
+    eigx = (2._8*cos(factx*xnx*xi) - 2._8)*ddx2
 
-    do k = 1, nzm
-      fline(k) = F(kx+1, k)
-    end do
+    fline(1:nzm) = F(i, 1:nzm)
 
-    if (kx == 0) then
+    if (id.eq.0) then
       beta(1) = fline(1)/(eigx - a(1) - c(1))
       alfa(1) = -c(1)   /(eigx - a(1) - c(1))
     else
@@ -288,9 +289,7 @@ subroutine pressure_hm(u_hm_map, w_hm_map, rho, rhow, adz, adzw, dt_hm, dx_hm, d
       fline(k) = alfa(k)*fline(k+1) + beta(k)
     end do
 
-    do k = 1, nzm
-      F(kx+1, k) = fline(k)
-    end do
+    F(i,1:nzm) = fline(1:nzm)
   end do
 
   ! --------- x 逆变换 → 物理空间 φ(x,z) ---------  
@@ -300,7 +299,7 @@ subroutine pressure_hm(u_hm_map, w_hm_map, rho, rhow, adz, adzw, dt_hm, dx_hm, d
 
   do k = 1, nzm
     do i = 1, nsx
-      p_phys(i,k) = real(F(i,k))
+      p_phys(i,k) = F(i,k)
     end do
   end do
 
@@ -313,7 +312,11 @@ subroutine pressure_hm(u_hm_map, w_hm_map, rho, rhow, adz, adzw, dt_hm, dx_hm, d
     end do
   end do
 
-
+  do k = 1, nzm
+    do i = 1, nsx
+      p_phys(i,k) = p_phys(i,k) * rho(k)   ! convert p'/rho to p'
+    end do
+  end do
 
 end subroutine pressure_hm
 
