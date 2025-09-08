@@ -36,21 +36,21 @@ subroutine host_model_evolve( &
   u_hm_map, v_hm_map, w_hm_map, t_hm_map, q_hm_map)
 
   implicit none
-  ! -------- 输入（含 ghost） --------
-  real, intent(in) :: u0_in(1:nsx, nzm)
-  real, intent(in) :: v0_in(1:nsx, nzm)
-  real, intent(in) :: wsub_in(1:nsx, nz)
-  real, intent(in) :: t0_in(1:nsx, nzm)
-  real, intent(in) :: q0_in(1:nsx, nzm)
+  ! -------- 输入（不含 ghost） --------
+  real, intent(in) :: u0_in(nsx, nzm)
+  real, intent(in) :: v0_in(nsx, nzm)
+  real, intent(in) :: wsub_in(nsx, nz)
+  real, intent(in) :: t0_in(nsx, nzm)
+  real, intent(in) :: q0_in(nsx, nzm)
   real, intent(in) :: rho(nzm), rhow(nz), adz(nzm), adzw(nz)
   
 
-  ! -------- 输出（含 ghost） --------
-  real, intent(out) :: u_hm_map(1:nsx, nzm)
-  real, intent(out) :: v_hm_map(1:nsx, nzm)
-  real, intent(out) :: w_hm_map(1:nsx, nz)
-  real, intent(out) :: t_hm_map(1:nsx, nzm)
-  real, intent(out) :: q_hm_map(1:nsx, nzm)
+  ! -------- 输出（不含 ghost） --------
+  real, intent(out) :: u_hm_map(nsx, nzm)
+  real, intent(out) :: v_hm_map(nsx, nzm)
+  real, intent(out) :: w_hm_map(nsx, nz)
+  real, intent(out) :: t_hm_map(nsx, nzm)
+  real, intent(out) :: q_hm_map(nsx, nzm)
 
   ! -------- 局部 --------
   real :: dudt_hm(nsx, nzm), dvdt_hm(nsx, nzm), dwdt_hm(nsx, nz)
@@ -88,7 +88,7 @@ end subroutine host_model_evolve
 subroutine advect_mom_hm(u_hm_map, v_hm_map, w_hm_map, rho, rhow, adz, adzw, dudt_hm, dvdt_hm, dwdt_hm, dx_hm, dz_hm)
   implicit none
   ! 输入 
-  real, intent(in)  :: u_hm_map(1:nsx, nzm), v_hm_map(1:nsx, nzm), w_hm_map(1:nsx, nz)
+  real, intent(in)  :: u_hm_map(nsx, nzm), v_hm_map(nsx, nzm), w_hm_map(nsx, nz)
   real, intent(in)  :: rho(nzm), rhow(nz), adz(nzm), adzw(nz)
   real, intent(in)  :: dx_hm, dz_hm                ! dx 为 host 水平间距（列间距）
   ! 输出
@@ -96,18 +96,18 @@ subroutine advect_mom_hm(u_hm_map, v_hm_map, w_hm_map, rho, rhow, adz, adzw, dud
 
   ! 局部
   real :: dx25, dz25, irho_w, irho_k, irhow_k
-  real, allocatable :: fu(:,:), fv(:,:), fw(:,:)     ! x 向通量
-  real, allocatable :: fuz(:,:), fvz(:,:), fwz(:,:)  ! z 向通量（注意 f*u/f*v 在 w 层，大小 nz）
-  integer :: i, ic, k, kc, kb, kcu
+  real fu(nsx,nzm), fv(nsx,nzm), fw(nsx, nzm)     ! x 向通量
+  real fuz(nsx, nz), fvz(nsx, nz), fwz(nsx, nzm)  ! z 向通量（注意 f*u/f*v 在 w 层，大小 nz）
+  integer :: i, ic, ib, k, kc, kb, kcu
 
-  !---- 分配并清零
-  allocate(fu(1:nsx, nzm), fv(1:nsx, nzm), fw(1:nsx, nzm))
-  allocate(fuz(1:nsx, nz ), fvz(1:nsx, nz ), fwz(1:nsx, nzm))
-  fu = 0.0; fv = 0.0; fw = 0.0
-  fuz = 0.0; fvz = 0.0; fwz = 0.0
+  !---- 初始化清零 ----
+  fu = 0.; fv = 0.; fw = 0.
+  ! fuz / fvz 在 w 层定义：k=1…nz；边界 k=1,nz 设 0
+  fuz(:,1) = 0.; fvz(:,1) = 0.; fwz(:,1) = 0.
+  fuz(:,nz) = 0.; fvz(:,nz) = 0.; fwz(:,nzm) = 0.
 
   dx25 = 0.25 / dx_hm         
-  dz25 = 1.0  / (4.0*dz_hm)
+  dz25 = 1.   / (4.*dz_hm)
 
   !==================== x 向通量 ====================
   do k = 1, nzm
@@ -123,25 +123,22 @@ subroutine advect_mom_hm(u_hm_map, v_hm_map, w_hm_map, rho, rhow, adz, adzw, dud
                         ( w_hm_map(i,kc) + w_hm_map(ic,kc) )
     end do
     do i = 1, nsx
-      ic = i - 1
-      if (ic < 1) ic = nsx + ic
-      dudt_hm(i,k)   = dudt_hm(i,k)   - ( fu(i,k) - fu(ic,k) )
-      dvdt_hm(i,k)   = dvdt_hm(i,k)   - ( fv(i,k) - fv(ic,k) )
-      dwdt_hm(i,kc)  = dwdt_hm(i,kc)  - irho_w * ( fw(i,k) - fw(ic,k) )
+      ib = i - 1
+      if (ib < 1) ib = nsx + ib
+      dudt_hm(i,k)   = dudt_hm(i,k)   - ( fu(i,k) - fu(ib,k) )
+      dvdt_hm(i,k)   = dvdt_hm(i,k)   - ( fv(i,k) - fv(ib,k) )
+      dwdt_hm(i,kc)  = dwdt_hm(i,kc)  - irho_w * ( fw(i,k) - fw(ib,k) )
     end do
   end do
 
   !==================== z 向通量 ====================
-  ! fuz / fvz 在 w 层定义：k=1…nz；边界 k=1,nz 设 0
-  fuz(:,1) = 0.0; fuz(:,nz) = 0.0
-  fvz(:,1) = 0.0; fvz(:,nz) = 0.0
-  fwz(:,1) = 0.0; fwz(:,nzm) = 0.0
+  
   do k = 2, nzm
     kb = k - 1
     do i = 1, nsx
-      ic = i - 1; if (ic < 1) ic = nsx + ic
-      fuz(i,k) = dz25 * rhow(k) * ( w_hm_map(i,k) + w_hm_map(ic,k) ) * ( u_hm_map(i,k) + u_hm_map(i,kb) )
-      fvz(i,k) = dz25 * rhow(k) * ( w_hm_map(i,k) + w_hm_map(ic,k) ) * ( v_hm_map(i,k) + v_hm_map(i,kb) )
+      ib = i - 1; if (ib < 1) ib = nsx + ib
+      fuz(i,k) = dz25 * rhow(k) * ( w_hm_map(i,k) + w_hm_map(ib,k) ) * ( u_hm_map(i,k) + u_hm_map(i,kb) )
+      fvz(i,k) = dz25 * rhow(k) * ( w_hm_map(i,k) + w_hm_map(ib,k) ) * ( v_hm_map(i,k) + v_hm_map(i,kb) )
     end do
   end do
   ! 顶层接口 k = nz (=nzm+1) 自然保持 0
@@ -165,9 +162,6 @@ subroutine advect_mom_hm(u_hm_map, v_hm_map, w_hm_map, rho, rhow, adz, adzw, dud
     end do
   end do
  
-
-  ! 释放
-  deallocate(fu, fv, fw, fuz, fvz, fwz)
 end subroutine advect_mom_hm 
 
 
@@ -241,7 +235,7 @@ subroutine pressure_hm(u_hm_map, w_hm_map, rho, rhow, adz, adzw, dt_hm, dx_hm, d
       !        + ( dwdt_hm_hist(i,k+1,2)*rup - dwdt_hm_hist(i,k,2)*rdn ) )
 
       rhs(i,k) = &
-        ( rdx*(u_hm_map(ip,k) - u_hm_map(i,k)) + ( w_hm_map(i,k+1)*rup - w_hm_map(i,k)*rdn ) )*dt_hm  &
+        ( rdx*(u_hm_map(ip,k) - u_hm_map(i,k)) + ( w_hm_map(i,k+1)*rup - w_hm_map(i,k)*rdn ) ) /dt_hm  &
       + ( rdx*(dudt_hm(ip,k) - dudt_hm(i,k)) + ( dwdt_hm(i,k+1)*rup - dwdt_hm(i,k)*rdn ) )
       
     end do
