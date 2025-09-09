@@ -80,8 +80,8 @@ subroutine host_model_evolve( &
                   u1_hm_map, v1_hm_map, w1_hm_map, dt_hm, dx_hm, dz)
 
   ! 4) 标量平流（上风，正定）
-  call advect_scalars_hm(t_hm_map, u1_hm_map, w1_hm_map, rho, rhow, adz, adzw, dx_hm, dz, dt_hm, .false.)
-  call advect_scalars_hm(q_hm_map, u1_hm_map, w1_hm_map, rho, rhow, adz, adzw, dx_hm, dz, dt_hm, .true.)
+  call advect_scalars_hm(t_hm_map, u1_hm_map, w1_hm_map, rho, rhow, adz, adzw, dx_hm, dz, dt_hm)
+  call advect_scalars_hm(q_hm_map, u1_hm_map, w1_hm_map, rho, rhow, adz, adzw, dx_hm, dz, dt_hm)
 
  
 end subroutine host_model_evolve
@@ -400,36 +400,55 @@ end subroutine adams_hm
 
 
 !================== 标量平流：质量通量上风 ==================
-subroutine advect_scalars_hm(f, u_hm_map, w_hm_map, rho, rhow, adz, adzw, dx_hm, dz_hm, dtloc, clip_nonneg)   !!!原代码里索引有3个ghost
+! using MPDATA method
+subroutine advect_scalars_hm(f, u_hm_map, w_hm_map, rho, rhow, adz, adzw)
   implicit none
   
   real, intent(inout) :: f(1:nsx, nzm)
   real, intent(in)    :: u_hm_map(1:nsx, nzm), w_hm_map(1:nsx, nz)
   real, intent(in)    :: rho(nzm), rhow(nz), adz(nzm), adzw(nz)
-  real, intent(in)    :: dx_hm, dz_hm, dtloc
-  logical, intent(in) :: clip_nonneg
 
   ! -------- 局部变量 --------
+  real :: mx (1:nsx, nzm)
+  real :: mn (1:nsx, nzm)
   real :: uuu(1:nsx, nzm)         ! x向面通量
   real :: www(1:nsx, nz)          ! z向界面通量
   real :: irho(nzm), iadz(nzm), irhow(nz)
   real :: dd, eps
   integer :: i, ib, ic, k, kb, kc
+  logical nonos
 
-  real x1, x2, a, b, a1, a2
+  real x1, x2, a, b, a1, a2, y
   real andiff,across,pp,pn
   andiff(x1,x2,a,b)=(abs(a)-a*a*b)*0.5*(x2-x1)
   across(x1,a1,a2)=0.03125*a1*a2*x1
-
+  pp(y)= max(0.,y)
+  pn(y)=-min(0.,y)
 
 
 !========================================================
+  nonos = .true.
   eps = 1.e-10
 
 
-  do i = 1, nsx
-    www(i, nz) = 0.
-  end do
+  www(:, nz) = 0.
+
+  if(nonos) then
+
+    do k = 1, nzm
+      kc = min(nzm, k+1)
+      kb = max(1, k-1)
+      do i = 1, nsx
+        ib = i-1
+        if (ib < 1) ib = nsx + ib
+        ic = i + 1
+        if (ic > nsx) ic = ic - nsx
+        mx(i, k) = max(f(ib, k), f(ic, k), f(i, kb), f(i, kc), f(i, k))
+        mn(i, k) = min(f(ib, k), f(ic, k), f(i, kb), f(i, kc), f(i, k))
+      end do
+    end do
+
+  end if  ! nonos
 
   !========================
   ! 第 1 步：低阶（迎风）通量
@@ -437,9 +456,9 @@ subroutine advect_scalars_hm(f, u_hm_map, w_hm_map, rho, rhow, adz, adzw, dx_hm,
   do k = 1, nzm
     kb = max(1, k-1)
     do i = 1, nsx
-      ic = i - 1
-      if (ic < 1) ic = nsx + ic
-      uuu(i, k) = max(0., u_hm_map(i, k))*f(ic, k) + &
+      ib = i - 1
+      if (ib < 1) ib = nsx + ib
+      uuu(i, k) = max(0., u_hm_map(i, k))*f(ib, k) + &
                   min(0., u_hm_map(i, k))*f(i, k)
     end do
 
@@ -472,34 +491,77 @@ subroutine advect_scalars_hm(f, u_hm_map, w_hm_map, rho, rhow, adz, adzw, dx_hm,
 
     
     do i = 1, nsx
-      ic = i-1
-      if (ic < 1) ic = nsx + ic
-      uuu(i, k) = andiff( f(ic,k), f(i,k), u_hm_map(i,k), 1./rho(k) )  &
-        - across( dd*( f(ic,kc)+f(i,kc) - f(ic,kb)-f(i,kb) ), &
-                  u_hm_map(i,k), w_hm_map(ic,k)+w_hm_map(ic,kc)+w_hm_map(i,k)+w_hm_map(i,kc) ) * (1./rho(k))
+      ib = i-1
+      if (ib < 1) ib = nsx + ib
+      uuu(i, k) = andiff( f(ib,k), f(i,k), u_hm_map(i,k), irho(k) )  &
+        - across( dd*( f(ib,kc)+f(i,kc) - f(ib,kb)-f(i,kb) ), &
+                  u_hm_map(i,k), w_hm_map(ib,k)+w_hm_map(ib,kc)+w_hm_map(i,k)+w_hm_map(i,kc) ) * irho(k)
     end do
 
     do i = 1, nsx
-      ic = i-1
-      if (ic < 1) ic = nsx + ic
-      ib = i+1
-      if (ib > nsx) ib = ib - nsx
+      ib = i - 1
+      if (ib < 1) ib = nsx + ib
+      ic = i + 1
+      if (ic > nsx) ic = ic - nsx
       www(i, k) = andiff( f(i,kb), f(i,k), w_hm_map(i,k), irhow(k) )  &
-        - across( f(ib,kb)+f(ib,k) - f(ic,kb)-f(ic,k), &
-                  w_hm_map(i,k), ( u_hm_map(i,kb)+u_hm_map(i,k)+u_hm_map(ib,k)+u_hm_map(ib,kb) ) ) * irhow(k)
+        - across( f(ic,kb)+f(ic,k) - f(ib,kb)-f(ib,k), &
+                  w_hm_map(i,k), ( u_hm_map(i,kb)+u_hm_map(i,k)+u_hm_map(ic,k)+u_hm_map(ic,kb) ) ) * irhow(k)
     end do
   end do
 
   ! 底部边界
-  do i = 1, nsx
-    www(i, 1) = 0.0
-  end do
+  www(:, 1) = 0.
 
-  do k=1,nzm 
-    do i=1,nsx
-      ib = i+1
-      if (ib > nsx) ib = ib - nsx
-      f(i,k)= max(0., f(i,k) - (uuu(ib,k)-uuu(i,k) &
+  !---------- non-osscilatory option ---------------
+
+  if (nonos) then
+
+    do k = 1, nzm
+      kc = min(nzm, k+1)
+      kb = max(1, k-1)
+      do i = 1, nsx
+        ib = i - 1
+        if (ib < 1) ib = nsx + ib
+        ic = i + 1
+        if (ic > nsx) ic = ic - nsx
+        mx(i, k) = max(f(ib, k), f(ic, k), f(i, kb), f(i, kc), f(i, k), mx(i, k))
+        mn(i, k) = min(f(ib, k), f(ic, k), f(i, kb), f(i, kc), f(i, k), mn(i, k))
+      end do
+    end do
+
+    do k = 1, nzm
+      kc = min(nzm, k+1)
+      do i = 1, nsx
+        ic = i + 1
+        if (ic > nsx) ic = ic - nsx
+        mx(i, k) = rho(k) * (mx(i,k)-f(i,k)) / (pn(uuu(ic,k))+pp(uuu(i,k)) + &
+                  iadz(k)*(pn(www(i,kc))+pp(www(i,k))) + eps)	
+        mn(i, k) = rho(k) * (f(i,k)-mn(i,k)) / (pp(uuu(ic,k))+pn(uuu(i,k)) + &
+                  iadz(k)*(pp(www(i,kc))+pn(www(i,k))) + eps)	
+      end do
+    end do
+
+    do k = 1, nzm
+      kb = max(1, k-1)
+      do i = 1, nsx
+        ib = i - 1
+        if (ib < 1) ib = nsx + ib
+        uuu(i,k) = pp(uuu(i,k)) * min(1.,mx(i,k), mn(ib,k)) &
+                 - pn(uuu(i,k)) * min(1.,mx(ib,k),mn(i,k))
+      end do
+      do i=1,nsx
+        www(i,k) = pp(www(i,k)) * min(1.,mx(i,k), mn(i,kb)) &
+                 - pn(www(i,k)) * min(1.,mx(i,kb),mn(i,k))
+      end do
+    end do
+
+  endif ! nonos
+
+  do k = 1, nzm 
+    do i = 1, nsx
+      ic = i+1
+      if (ic > nsx) ic = ic - nsx
+      f(i,k)= max(0., f(i,k) - (uuu(ic,k)-uuu(i,k) &
                       +(www(i,k+1)-www(i,k))*iadz(k))*irho(k))
     end do
  end do 
