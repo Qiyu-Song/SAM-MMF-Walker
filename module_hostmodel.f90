@@ -1,5 +1,6 @@
 module module_hostmodel
-  use vars
+  use grid, only: nsx, nzm, nz, adz, adzw, dx, dz, dx_hm, dt_hm
+  use vars, only: rho, rhow, hm_step
   implicit none
   private
   public :: host_model_init, host_model_finalize, host_model_evolve, nudging_hm
@@ -9,6 +10,7 @@ module module_hostmodel
 contains
 
 subroutine host_model_init()
+  use vars
   implicit none
 
   if (.not. allocated(wsub_map)) then
@@ -24,6 +26,7 @@ end subroutine host_model_init
 
 
 subroutine host_model_finalize()  !暂时不打算调用
+  use vars
   implicit none
   if (allocated(wsub_map)) deallocate(wsub_map)
   wsub_inited = .false.
@@ -32,7 +35,6 @@ end subroutine host_model_finalize
 
 subroutine host_model_evolve( &
   u0_in, v0_in, wsub_in, t0_in, q0_in,  &
-  rho, rhow, adz, adzw,                    &
   u_hm_map, v_hm_map, w_hm_map, t_hm_map, q_hm_map)
 
   implicit none
@@ -42,7 +44,6 @@ subroutine host_model_evolve( &
   real, intent(in) :: wsub_in(nsx, nz)
   real, intent(in) :: t0_in(nsx, nzm)
   real, intent(in) :: q0_in(nsx, nzm)
-  real, intent(in) :: rho(nzm), rhow(nz), adz(nzm), adzw(nz)
   
 
   ! -------- 输出（不含 ghost） --------
@@ -91,8 +92,8 @@ subroutine host_model_evolve( &
                   u1_hm_map, v1_hm_map, w1_hm_map, dt_hm, dx_hm, dz)
 
   ! 4) 标量平流（上风，正定）
-  call advect_scalars_hm(t_hm_map, u1_hm_map, w1_hm_map, rho, rhow, adz, adzw, dx_hm, dz, dt_hm)
-  call advect_scalars_hm(q_hm_map, u1_hm_map, w1_hm_map, rho, rhow, adz, adzw, dx_hm, dz, dt_hm)
+  call advect_scalars_hm(t_hm_map, u1_hm_map, w1_hm_map, rho, rhow, adz, adzw)
+  call advect_scalars_hm(q_hm_map, u1_hm_map, w1_hm_map, rho, rhow, adz, adzw)
 
   ! interpolate back for u,v (due to Arakawa C-type grid)
   tmp(1:nsx-1, :) = 0.5 * (u_hm_map(1:nsx-1, :) + u_hm_map(2:nsx, :))
@@ -212,7 +213,7 @@ subroutine pressure_hm(u_hm_map, w_hm_map, rho, rhow, adz, adzw, dt_hm, dx_hm, d
   integer :: ifax(100)
 
   ! 竖直三对角系数与谱特征值
-  real(8) :: a(nzm), c(nzm), eigx, ddx2, pii, factx
+  real(8) :: a(nzm), c(nzm), eigx, ddx2, pii, factx, xnx
   real(8) :: alfa(nzm-1), beta(nzm-1), fline(nzm), denom
 
   ! AB 系数与 press_rhs 系数
@@ -281,14 +282,13 @@ subroutine pressure_hm(u_hm_map, w_hm_map, rho, rhow, adz, adzw, dt_hm, dx_hm, d
 
   ddx2 = 1._8/(dx_hm*dx_hm)
   pii  = acos(-1._8)
-  xnx=pii/nx_gl
+  xnx=pii/nsx
   factx= 2.d0
 
   ! --------- 对每个 kx 解竖直三对角 ---------
   do i = 1, nsx+1
     id = (i-0.1)/2.
-    xi = id
-    eigx = (2._8*cos(factx*xnx*xi) - 2._8)*ddx2
+    eigx = (2._8*cos(factx*xnx*id) - 2._8)*ddx2
 
     fline(1:nzm) = F(i, 1:nzm)
 
@@ -396,8 +396,8 @@ subroutine adams_hm(u, v, w, dudt_hm, dvdt_hm, dwdt_hm, u1, v1, w1, dt_hm, dx_hm
   end do; end do
   
   ! compute time averaged velocties for second-order advection of scalars:
-  dtdx = dtn/dx_hm
-  dtdz = dtn/dz_hm
+  dtdx = dt_hm/dx_hm
+  dtdz = dt_hm/dz_hm
   a1 = 0.5
   a2 = 0.5
   if(hm_step.eq.1) then

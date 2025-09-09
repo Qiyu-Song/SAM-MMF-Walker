@@ -157,7 +157,6 @@ subroutine hm_couple_step()
         !------------- 调用 host model -------------
         call host_model_evolve( u0_in=u0_map, v0_in=v0_map, wsub_in=wsub_map, &
                             t0_in=t0_map, q0_in=q0_map,                    &
-                            rho=rho, rhow=rhow, adz=adz, adzw=adzw,          &
                             u_hm_map=u_hm_map, v_hm_map=v_hm_map,            &
                             w_hm_map=w_hm_map, t_hm_map=t_hm_map, q_hm_map=q_hm_map )
 
