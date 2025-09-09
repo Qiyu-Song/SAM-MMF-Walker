@@ -216,7 +216,7 @@ do while(nstep.lt.nstop.and.nelapse.gt.0)
 !       Nadging to sounding:
 
      if (dompimmf) then
-          if (nstep .lt. nstephostmodel) then
+          if (nstep .gt. nstephostmodel) then
               call nudging_hm()
           else
                call nudging()

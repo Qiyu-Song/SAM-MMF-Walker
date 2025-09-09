@@ -571,6 +571,7 @@ end subroutine advect_scalars_hm
 
 !==========================================================================================
 subroutine nudging_hm()
+! keep nudging terms constant in each host model time step
 	
 use vars
 use params
@@ -580,7 +581,7 @@ implicit none
 real coef, coef1
 integer i,j,k
 	
-call t_startf ('nudging')
+call t_startf ('nudging_hm')
 
 tnudge = 0.
 qnudge = 0.
@@ -604,16 +605,15 @@ if(donudging_uv) then
     end do
 endif
 
-coef = 1./dt_hm
-
+! no minus gamaz here since both t0_local_hm and tg0_hm include gamaz
 if(donudging_tq.or.donudging_t) then
     coef1 = dtn / dt_hm
     do k=1,nzm
       if(z(k).ge.nudging_t_z1.and.z(k).le.nudging_t_z2) then
-        tnudge(k)=tnudge(k) -(t0_local_hm(k)-tg0_hm(k)-gamaz(k))*coef
+        tnudge(k)=tnudge(k) -(t0_local_hm(k)-tg0_hm(k))*coef
         do j=1,ny
           do i=1,nx
-             t(i,j,k)=t(i,j,k)-(t0_local_hm(k)-tg0_hm(k)-gamaz(k))*coef1
+             t(i,j,k)=t(i,j,k)-(t0_local_hm(k)-tg0_hm(k))*coef1
           end do
         end do
       end if
@@ -634,7 +634,7 @@ if(donudging_tq.or.donudging_q) then
     end do
 endif
 
-call t_stopf('nudging')
+call t_stopf('nudging_hm')
 
 end subroutine nudging_hm
 
