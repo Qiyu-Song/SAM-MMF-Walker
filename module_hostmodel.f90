@@ -57,6 +57,7 @@ subroutine host_model_evolve( &
   ! for advection of scalars
   real :: u1_hm_map(nsx, nzm), v1_hm_map(nsx, nzm), w1_hm_map(nsx, nz)
   real :: p_phys(nsx, nzm)    ! 压力势（诊断用，可不输出）
+  real :: tmp(nsx, nzm)
 
   ! 拷贝初值
   u_hm_map = u0_in
@@ -64,6 +65,16 @@ subroutine host_model_evolve( &
   w_hm_map = wsub_in
   t_hm_map = t0_in
   q_hm_map = q0_in
+
+  ! interpolate for u,v since using Arakawa C-type grid
+  ! u,v should be on the left boundary of grid box
+  tmp(1,     :) = 0.5 * (u_hm_map(1,     :) + u_hm_map(nsx,     :))
+  tmp(2:nsx, :) = 0.5 * (u_hm_map(2:nsx, :) + u_hm_map(1:nsx-1, :))
+  u_hm_map = tmp
+
+  tmp(1,     :) = 0.5 * (v_hm_map(1,     :) + v_hm_map(nsx,     :))
+  tmp(2:nsx, :) = 0.5 * (v_hm_map(2:nsx, :) + v_hm_map(1:nsx-1, :))
+  v_hm_map = tmp
 
   dudt_hm = 0.0; dvdt_hm = 0.0; dwdt_hm = 0.0
 
@@ -83,6 +94,14 @@ subroutine host_model_evolve( &
   call advect_scalars_hm(t_hm_map, u1_hm_map, w1_hm_map, rho, rhow, adz, adzw, dx_hm, dz, dt_hm)
   call advect_scalars_hm(q_hm_map, u1_hm_map, w1_hm_map, rho, rhow, adz, adzw, dx_hm, dz, dt_hm)
 
+  ! interpolate back for u,v (due to Arakawa C-type grid)
+  tmp(1:nsx-1, :) = 0.5 * (u_hm_map(1:nsx-1, :) + u_hm_map(2:nsx, :))
+  tmp(nsx,     :) = 0.5 * (u_hm_map(nsx,     :) + u_hm_map(1,     :))
+  u_hm_map = tmp
+
+  tmp(1:nsx-1, :) = 0.5 * (v_hm_map(1:nsx-1, :) + v_hm_map(2:nsx, :))
+  tmp(nsx,     :) = 0.5 * (v_hm_map(nsx,     :) + v_hm_map(1,     :))
+  v_hm_map = tmp
  
 end subroutine host_model_evolve
 
