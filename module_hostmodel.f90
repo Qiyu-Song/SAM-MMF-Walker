@@ -1,5 +1,5 @@
 module module_hostmodel
-  use grid, only: nsx, nzm, nz, adz, adzw, dx, dz, dx_hm, dt_hm
+  use grid, only: nsx, nzm, nz, adz, adzw, dz, dx_hm, dt_hm
   use vars, only: rho, rhow, hm_step
   implicit none
   private
@@ -81,19 +81,19 @@ subroutine host_model_evolve( &
 
   ! 1) 动量平流（2D，二阶中心）
   call advect_mom_hm(u_hm_map, v_hm_map, w_hm_map, rho, rhow, adz, adzw, &
-                     dudt_hm, dvdt_hm, dwdt_hm, dx_hm, dz)
+                     dudt_hm, dvdt_hm, dwdt_hm)
 
   ! 2) 压力投影
-  call pressure_hm(u_hm_map, w_hm_map, rho, rhow, adz, adzw, dt_hm, dx_hm, dz, &
+  call pressure_hm(u_hm_map, w_hm_map, &
                             dudt_hm, dwdt_hm, p_phys)
 
   ! 3) AB 时间推进
   call adams_hm(u_hm_map, v_hm_map, w_hm_map, dudt_hm, dvdt_hm, dwdt_hm, &
-                  u1_hm_map, v1_hm_map, w1_hm_map, dt_hm, dx_hm, dz)
+                  u1_hm_map, v1_hm_map, w1_hm_map)
 
   ! 4) 标量平流（上风，正定）
-  call advect_scalars_hm(t_hm_map, u1_hm_map, w1_hm_map, rho, rhow, adz, adzw)
-  call advect_scalars_hm(q_hm_map, u1_hm_map, w1_hm_map, rho, rhow, adz, adzw)
+  call advect_scalars_hm(t_hm_map, u1_hm_map, w1_hm_map)
+  call advect_scalars_hm(q_hm_map, u1_hm_map, w1_hm_map)
 
   ! interpolate back for u,v (due to Arakawa C-type grid)
   tmp(1:nsx-1, :) = 0.5 * (u_hm_map(1:nsx-1, :) + u_hm_map(2:nsx, :))
@@ -108,12 +108,11 @@ end subroutine host_model_evolve
 
 !================== 动量平流：2D 二阶中心 ==================
 
-subroutine advect_mom_hm(u_hm_map, v_hm_map, w_hm_map, rho, rhow, adz, adzw, dudt_hm, dvdt_hm, dwdt_hm, dx_hm, dz_hm)
+subroutine advect_mom_hm(u_hm_map, v_hm_map, w_hm_map, dudt_hm, dvdt_hm, dwdt_hm)
   implicit none
   ! 输入 
   real, intent(in)  :: u_hm_map(nsx, nzm), v_hm_map(nsx, nzm), w_hm_map(nsx, nz)
-  real, intent(in)  :: rho(nzm), rhow(nz), adz(nzm), adzw(nz)
-  real, intent(in)  :: dx_hm, dz_hm                ! dx 为 host 水平间距（列间距）
+
   ! 输出
   real, intent(inout) :: dudt_hm(nsx, nzm), dvdt_hm(nsx, nzm), dwdt_hm(nsx, nz)
 
@@ -190,15 +189,14 @@ end subroutine advect_mom_hm
 
 
 !================== 压力投影 ==================
-subroutine pressure_hm(u_hm_map, w_hm_map, rho, rhow, adz, adzw, dt_hm, dx_hm, dz_hm, &
+subroutine pressure_hm(u_hm_map, w_hm_map,  &
                                 dudt_hm,  dwdt_hm, p_phys)
   use, intrinsic :: iso_fortran_env, only: real64
   implicit none
 
   real, intent(in)    :: u_hm_map(1:nsx, nzm)
   real, intent(in)    :: w_hm_map(1:nsx, nz)
-  real, intent(in)    :: rho(nzm), rhow(nz), adz(nzm), adzw(nz)
-  real, intent(in)    :: dt_hm, dx_hm, dz_hm
+
   
 
   real, intent(inout) :: dudt_hm(nsx, nzm),  dwdt_hm(nsx, nz)
@@ -344,12 +342,12 @@ end subroutine pressure_hm
 
 
 !================== Adams–Bashforth 时间推进 ==================
-subroutine adams_hm(u, v, w, dudt_hm, dvdt_hm, dwdt_hm, u1, v1, w1, dt_hm, dx_hm, dz_hm)
+subroutine adams_hm(u, v, w, dudt_hm, dvdt_hm, dwdt_hm, u1, v1, w1)
   implicit none
   real, intent(inout) :: u(nsx, nzm), v(nsx, nzm), w(nsx, nz)
   real, intent(in)    :: dudt_hm(nsx, nzm), dvdt_hm(nsx, nzm), dwdt_hm(nsx, nz)
   real, intent(out)   :: u1(nsx, nzm), v1(nsx, nzm), w1(nsx, nz)
-  real, intent(in)    :: dt_hm, dx_hm, dz_hm
+
   real :: at, bt, ct
   real :: dtdx, dtdz, rhox, rhoy, rhoz , a1, a2
   integer :: i,k
@@ -420,12 +418,11 @@ end subroutine adams_hm
 
 !================== 标量平流：质量通量上风 ==================
 ! using MPDATA method
-subroutine advect_scalars_hm(f, u_hm_map, w_hm_map, rho, rhow, adz, adzw)
+subroutine advect_scalars_hm(f, u_hm_map, w_hm_map)
   implicit none
   
   real, intent(inout) :: f(1:nsx, nzm)
   real, intent(in)    :: u_hm_map(1:nsx, nzm), w_hm_map(1:nsx, nz)
-  real, intent(in)    :: rho(nzm), rhow(nz), adz(nzm), adzw(nz)
 
   ! -------- 局部变量 --------
   real :: mx (1:nsx, nzm)
