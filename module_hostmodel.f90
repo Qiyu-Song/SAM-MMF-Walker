@@ -80,7 +80,7 @@ subroutine host_model_evolve( &
   dudt_hm = 0.0; dvdt_hm = 0.0; dwdt_hm = 0.0
 
   ! 1) 动量平流（2D，二阶中心）
-  call advect_mom_hm(u_hm_map, v_hm_map, w_hm_map, rho, rhow, adz, adzw, &
+  call advect_mom_hm(u_hm_map, v_hm_map, w_hm_map, &
                      dudt_hm, dvdt_hm, dwdt_hm)
 
   ! 2) 压力投影
@@ -129,7 +129,7 @@ subroutine advect_mom_hm(u_hm_map, v_hm_map, w_hm_map, dudt_hm, dvdt_hm, dwdt_hm
   fuz(:,nz) = 0.; fvz(:,nz) = 0.; fwz(:,nzm) = 0.
 
   dx25 = 0.25 / dx_hm         
-  dz25 = 1.   / (4.*dz_hm)
+  dz25 = 1.   / (4.*dz)
 
   !==================== x 向通量 ====================
   do k = 1, nzm
@@ -239,7 +239,7 @@ subroutine pressure_hm(u_hm_map, w_hm_map,  &
 
   ! --------- RHS (press_rhs) — 2D(x,z) 与 SAM 一致的形式 ---------
   do k = 1, nzm
-    rdz = 1.0/(adz(k)*dz_hm)
+    rdz = 1.0/(adz(k)*dz)
     rup = rhow(k+1)/rho(k) * rdz    ! 上界面系数 (kc=k+1)
     rdn = rhow(k  )/rho(k) * rdz    ! 下界面系数 (k)
 
@@ -274,8 +274,8 @@ subroutine pressure_hm(u_hm_map, w_hm_map,  &
   ! --------- 构造 z 向三对角系数 ---------  
   ! assuming dowallx = .false., dowally = .false.
   do k = 1, nzm
-    a(k) = rhow(k  ) /( rho(k)*adz(k)*adzw(k  ) * dz_hm*dz_hm )
-    c(k) = rhow(k+1) /( rho(k)*adz(k)*adzw(k+1) * dz_hm*dz_hm )
+    a(k) = rhow(k  ) /( rho(k)*adz(k)*adzw(k  ) * dz*dz )
+    c(k) = rhow(k+1) /( rho(k)*adz(k)*adzw(k+1) * dz*dz )
   end do
 
   ddx2 = 1._8/(dx_hm*dx_hm)
@@ -328,7 +328,7 @@ subroutine pressure_hm(u_hm_map, w_hm_map,  &
     do i = 1, nsx
       im = i - 1; if (im < 1)   im = nsx + im
       dudt_hm(i,k) = dudt_hm(i,k) - (p_phys(i,k) - p_phys(im,k))/dx_hm  !dvdt_hm不做更新
-      dwdt_hm(i,k) = dwdt_hm(i,k) - (p_phys(i,k)-p_phys(i,max(1,k-1)))/(dz_hm*adzw(k))
+      dwdt_hm(i,k) = dwdt_hm(i,k) - (p_phys(i,k)-p_phys(i,max(1,k-1)))/(dz*adzw(k))
     end do
   end do
 
@@ -395,7 +395,7 @@ subroutine adams_hm(u, v, w, dudt_hm, dvdt_hm, dwdt_hm, u1, v1, w1)
   
   ! compute time averaged velocties for second-order advection of scalars:
   dtdx = dt_hm/dx_hm
-  dtdz = dt_hm/dz_hm
+  dtdz = dt_hm/dz
   a1 = 0.5
   a2 = 0.5
   if(hm_step.eq.1) then
