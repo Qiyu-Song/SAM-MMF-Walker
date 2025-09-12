@@ -235,6 +235,12 @@ real u0_local_hm(nzm)
 real v0_local_hm(nzm)
 real t0_local_hm(nzm)
 real q0_local_hm(nzm)
+real tabs0_local_hm(nzm)
+real qv0_local_hm(nzm)
+real qn0_local_hm(nzm)
+real qp0_local_hm(nzm)
+
+
 
 real ug0_hm(nzm)
 real vg0_hm(nzm)

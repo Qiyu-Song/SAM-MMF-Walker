@@ -35,6 +35,7 @@ end subroutine host_model_finalize
 
 subroutine host_model_evolve( &
   u0_in, v0_in, wsub_in, t0_in, q0_in,  &
+  tabs0_in, qv0_in, qn0_in, qp0_in, &
   u_hm_map, v_hm_map, w_hm_map, t_hm_map, q_hm_map)
 
   implicit none
@@ -44,6 +45,10 @@ subroutine host_model_evolve( &
   real, intent(in) :: wsub_in(nsx, nz)
   real, intent(in) :: t0_in(nsx, nzm)
   real, intent(in) :: q0_in(nsx, nzm)
+  real, intent(in) :: tabs0_in(nsx, nzm)
+  real, intent(in) :: qv0_in(nsx, nzm)
+  real, intent(in) :: qn0_in(nsx, nzm)
+  real, intent(in) :: qp0_in(nsx, nzm)
   
 
   ! -------- 输出（不含 ghost） --------
@@ -59,7 +64,7 @@ subroutine host_model_evolve( &
   real :: u1_hm_map(nsx, nzm), v1_hm_map(nsx, nzm), w1_hm_map(nsx, nz)
   real :: p_phys(nsx, nzm)    ! 压力势（诊断用，可不输出）
   real :: tmp(nsx, nzm)
-
+  
   ! 拷贝初值
   u_hm_map = u0_in
   v_hm_map = v0_in
@@ -78,6 +83,8 @@ subroutine host_model_evolve( &
   v_hm_map = tmp
 
   dudt_hm = 0.0; dvdt_hm = 0.0; dwdt_hm = 0.0
+
+  call buoyancy_hm(tabs0_in, qv0_in, qn0_in, qp0_in, dwdt_hm)
 
   ! 1) 动量平流（2D，二阶中心）
   call advect_mom_hm(u_hm_map, v_hm_map, w_hm_map, &
@@ -105,6 +112,44 @@ subroutine host_model_evolve( &
   v_hm_map = tmp
  
 end subroutine host_model_evolve
+
+subroutine buoyancy_hm(tabs0_in, qv0_in, qn0_in, qp0_in, dwdt_hm)
+  use vars
+  use params
+  implicit none
+
+  real, intent(in)  :: tabs0_in(nsx, nzm), qv0_in(nsx, nzm), qn0_in(nsx, nzm), qp0_in(nsx, nzm)
+  real, intent(inout) :: dwdt_hm(nsx, nz)
+  real :: tabs0_entire_domain(nzm), qv0_entire_domain(nzm), qn0_entire_domain(nzm), qp0_entire_domain(nzm)
+
+  integer i,k,kb
+  real betu, betd
+	
+  do k = 1, nzm
+      tabs0_entire_domain(k) = sum( tabs0_in(:,k) ) / nsx
+      qv0_entire_domain(k) = sum( qv0_in(:,k) ) / nsx
+      qn0_entire_domain(k) = sum( qn0_in(:,k) ) / nsx
+      qp0_entire_domain(k) = sum( qp0_in(:,k) ) / nsx  
+  end do
+
+  do k=2,nzm	
+    kb=k-1
+    betu=adz(kb)/(adz(k)+adz(kb))
+    betd=adz(k)/(adz(k)+adz(kb))
+    
+    do i=1,nsx
+      dwdt_hm(i,k)=dwdt_hm(i,k) +  &
+          bet(k)*betu* &
+        ( tabs0_entire_domain(k)*(epsv*(qv0_in(i,k)-qv0_entire_domain(k))-(qn0_in(i,k)-qn0_entire_domain(k)+qp0_in(i,k)-qp0_entire_domain(k))) &
+          +(tabs0_in(i,k)-tabs0_entire_domain(k))*(1.+epsv*qv0_entire_domain(k)-qn0_entire_domain(k)-qp0_entire_domain(k)) ) &
+        + bet(kb)*betd* &
+        ( tabs0_entire_domain(kb)*(epsv*(qv0_in(i,kb)-qv0_entire_domain(kb))-(qn0_in(i,kb)-qn0_entire_domain(kb)+qp0_in(i,kb)-qp0_entire_domain(kb))) &
+          +(tabs0_in(i,kb)-tabs0_entire_domain(kb))*(1.+epsv*qv0_entire_domain(kb)-qn0_entire_domain(kb)-qp0_entire_domain(kb)) )  
+
+    end do ! i
+  end do ! k
+
+end subroutine buoyancy_hm
 
 !================== 动量平流：2D 二阶中心 ==================
 

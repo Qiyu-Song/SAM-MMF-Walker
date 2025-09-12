@@ -215,17 +215,16 @@ do while(nstep.lt.nstop.and.nelapse.gt.0)
 !----------------------------------------------------------
 !       Nadging to sounding:
 
-     ! if (dompimmf) then
-     !      if (nstep .gt. nstephostmodel) then
-     !          call nudging_hm()
-     !      else
-     !           call nudging()
-     !      end if
-     ! else
-     !      call nudging()
-     ! end if
-     
-     call nudging()
+     if (dompimmf) then
+          if (nstep .gt. nstephostmodel) then
+              call nudging_hm()
+          else
+               call nudging()
+          end if
+     else
+          call nudging()
+     end if
+ 
 
 !----------------------------------------------------------
 !   	spange-layer damping near the upper boundary:
