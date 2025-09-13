@@ -64,6 +64,9 @@ subroutine host_model_evolve( &
   real :: u1_hm_map(nsx, nzm), v1_hm_map(nsx, nzm), w1_hm_map(nsx, nz)
   real :: p_phys(nsx, nzm)    ! 压力势（诊断用，可不输出）
   real :: tmp(nsx, nzm)
+  real :: u_hm_map_edge(nsx, nzm)
+  real :: v_hm_map_edge(nsx, nzm)
+
   
   ! 拷贝初值
   u_hm_map = u0_in
@@ -82,25 +85,53 @@ subroutine host_model_evolve( &
   tmp(2:nsx, :) = 0.5 * (v_hm_map(2:nsx, :) + v_hm_map(1:nsx-1, :))
   v_hm_map = tmp
 
+  call output_host_model_single_variable(u_hm_map, 'U00', 'U_after_1st_interpolation' , 'm/s')
+  call output_host_model_single_variable(v_hm_map, 'V00', 'V_after_1st_interpolation' , 'm/s')
+
   dudt_hm = 0.0; dvdt_hm = 0.0; dwdt_hm = 0.0
 
+  ! 1) 浮力
   call buoyancy_hm(tabs0_in, qv0_in, qn0_in, qp0_in, dwdt_hm)
 
-  ! 1) 动量平流（2D，二阶中心）
+  tmp(:, :) = dwdt_hm(:,1:nzm)
+  call output_host_model_single_variable(tmp, 'dwdt1', 'dwdt_after_buoyancy' , 'm/s2')
+
+  ! 2) 动量平流（2D，二阶中心）
   call advect_mom_hm(u_hm_map, v_hm_map, w_hm_map, &
                      dudt_hm, dvdt_hm, dwdt_hm)
 
-  ! 2) 压力投影
+  call output_host_model_single_variable(dudt_hm, 'dudt2', 'dudt_after_advect_mom' , 'm/s2')
+  call output_host_model_single_variable(dvdt_hm, 'dvdt2', 'dvdt_after_advect_mom' , 'm/s2')
+  tmp(:, :) = dwdt_hm(:,1:nzm)
+  call output_host_model_single_variable(tmp, 'dwdt2', 'dwdt_after_advect_mom' , 'm/s2')
+
+  ! 3) 压力投影
   call pressure_hm(u_hm_map, w_hm_map, &
                             dudt_hm, dwdt_hm, p_phys)
 
-  ! 3) AB 时间推进
+  call output_host_model_single_variable(dudt_hm, 'dudt3', 'dudt_after_pressure' , 'm/s2')
+  tmp(:, :) = dwdt_hm(:,1:nzm)
+  call output_host_model_single_variable(tmp, 'dwdt3', 'dwdt_after_pressure' , 'm/s2')
+  call output_host_model_single_variable(p_phys, 'p_phys3', 'Pressure_Perturbation' , 'Pa')
+
+  ! 4) AB 时间推进
   call adams_hm(u_hm_map, v_hm_map, w_hm_map, dudt_hm, dvdt_hm, dwdt_hm, &
                   u1_hm_map, v1_hm_map, w1_hm_map)
 
-  ! 4) 标量平流（上风，正定）
+  call output_host_model_single_variable(u_hm_map, 'U4', 'U_after_adams' , 'm/s')
+  call output_host_model_single_variable(v_hm_map, 'V4', 'V_after_adams' , 'm/s')
+  tmp(:, :) = w_hm_map(:,1:nzm)
+  call output_host_model_single_variable(tmp, 'W4', 'W_after_adams' , 'm/s')
+  call output_host_model_single_variable(u1_hm_map, 'U41', 'U1_after_adams' , 'm/s')
+  call output_host_model_single_variable(v1_hm_map, 'V41', 'V1_after_adams' , 'm/s')
+  tmp(:, :) = w1_hm_map(:,1:nzm)
+  call output_host_model_single_variable(tmp, 'W41', 'W1_after_adams' , 'm/s')
+  ! 5) 标量平流（上风，正定）
   call advect_scalars_hm(t_hm_map, u1_hm_map, w1_hm_map)
   call advect_scalars_hm(q_hm_map, u1_hm_map, w1_hm_map)
+
+  u_hm_map_edge = u_hm_map
+  v_hm_map_edge = v_hm_map
 
   ! interpolate back for u,v (due to Arakawa C-type grid)
   tmp(1:nsx-1, :) = 0.5 * (u_hm_map(1:nsx-1, :) + u_hm_map(2:nsx, :))
@@ -110,6 +141,13 @@ subroutine host_model_evolve( &
   tmp(1:nsx-1, :) = 0.5 * (v_hm_map(1:nsx-1, :) + v_hm_map(2:nsx, :))
   tmp(nsx,     :) = 0.5 * (v_hm_map(nsx,     :) + v_hm_map(1,     :))
   v_hm_map = tmp
+
+  call output_host_model(u0_in, v0_in, t0_in, q0_in,  &
+                          u_hm_map, v_hm_map, t_hm_map, q_hm_map, w_hm_map, u_hm_map_edge, v_hm_map_edge)
+
+  ! call write_host_diag(u0_in, v0_in, t0_in, q0_in, &
+  !                    u_hm_map, v_hm_map, t_hm_map, q_hm_map, w_hm_map, hm_step)
+
  
 end subroutine host_model_evolve
 
@@ -698,6 +736,389 @@ endif
 call t_stopf('nudging_hm')
 
 end subroutine nudging_hm
+
+
+
+     
+subroutine output_host_model(u0_in, v0_in, t0_in, q0_in,  &
+  u_hm_map, v_hm_map, t_hm_map, q_hm_map, w_hm_map, u_hm_map_edge, v_hm_map_edge)
+	
+    use vars
+
+    implicit none
+    real, intent(in) :: u0_in(nsx, nzm), v0_in(nsx, nzm), t0_in(nsx, nzm), q0_in(nsx, nzm)
+    real, intent(in)  :: u_hm_map(nsx, nzm), v_hm_map(nsx, nzm), t_hm_map(nsx, nzm), q_hm_map(nsx, nzm), w_hm_map(nsx, nz)
+    real, intent(in)  :: u_hm_map_edge(nsx, nzm), v_hm_map_edge(nsx, nzm)
+   
+
+
+    character *120 filename
+    character *80 long_name
+    character *8 name
+    character *10 timechar
+    character *4 rankchar
+    character *5 sepchar
+    character *6 filetype
+    character *10 units
+
+    integer i,k,nfields_hm,nfields1_hm
+    real(4) tmp(nsx,1,nzm)
+    integer, external :: lenstr
+
+
+    nfields_hm=11 ! number of 3D fields to save
+    nfields1_hm=0
+
+    sepchar=""
+
+    write(rankchar,'(i4)') 1 !nsubdomains
+    write(timechar,'(i10)') nstep
+    do k=1,11-lenstr(timechar)-1
+    timechar(k:k)='0'
+    end do
+
+    print*, 'Rank=', rank, '*************begin output_host_model***************'
+
+    filetype = '.bin2D'
+    filename='./OUT_3D/host_model_output_all_v/'//trim(case)//'_'//trim(caseid)//&
+    filetype//sepchar
+    if(nrestart.eq.0.and.notopened3D) then
+        open(46,file=filename,status='unknown',form='unformatted')	
+    else
+        open(46,file=filename,status='unknown', &
+                            form='unformatted', position='append')
+    end if
+    notopened3D=.false.
+
+    write(46) nsx,1,nzm,1,1,1,nfields_hm
+ 
+    do k=1,nzm
+        write(46) real(z(k),4)
+    end do
+ 
+    do k=1,nzm
+        write(46) real(pres(k),4)
+    end do
+   
+    write(46) real(dx_hm,4)
+   
+    write(46) real(dy,4)
+    write(46) real(float(nstep)*dt/(3600.*24.)+day0,4)
+
+  
+    nfields1_hm=nfields1_hm+1
+    do k=1,nzm
+        do i=1,nsx
+            tmp(i,1,k)=u0_in(i,k)
+        end do
+    end do
+    name='U0_In'
+    long_name='Input X Wind Component For Host Model'
+    units='m/s'
+    call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
+
+   
+    nfields1_hm=nfields1_hm+1
+    do k=1,nzm
+        do i=1,nsx
+            tmp(i,1,k)=v0_in(i,k)
+        end do
+    end do
+    name='V0_In'
+    long_name='Input Y Wind Component For Host Model'
+    units='m/s'
+    call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
+
+    nfields1_hm=nfields1_hm+1
+    do k=1,nzm
+        do i=1,nsx
+            tmp(i,1,k)=t0_in(i,k)
+        end do
+    end do
+    name='T0_In'
+    long_name='Input Liquid/Ice Water Static Energy For Host Model'
+    units='K'
+    call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
+
+    nfields1_hm=nfields1_hm+1
+    do k=1,nzm
+        do i=1,nsx
+            tmp(i,1,k)=q0_in(i,k)
+        end do
+    end do
+    name='Q0_In'
+    long_name='Input Water Vapor For Host Model'
+    units='kg/kg'
+    call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
+
+    nfields1_hm=nfields1_hm+1
+    do k=1,nzm
+        do i=1,nsx
+            tmp(i,1,k)=u_hm_map(i,k)
+        end do
+    end do
+    name='U0_Out'
+    long_name='Output X Wind Component For Host Model'
+    units='m/s'
+    call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
+
+    nfields1_hm=nfields1_hm+1
+    do k=1,nzm
+        do i=1,nsx
+            tmp(i,1,k)=v_hm_map(i,k)
+        end do
+    end do
+    name='V0_Out'
+    long_name='Output Y Wind Component For Host Model'
+    units='m/s'
+    call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
+
+    nfields1_hm=nfields1_hm+1
+    do k=1,nzm
+        do i=1,nsx
+            tmp(i,1,k)=t_hm_map(i,k)
+        end do
+    end do
+    name='T0_Out'
+    long_name='Output Liquid/Ice Water Static Energy For Host Model'
+    units='K'
+    call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
+
+    nfields1_hm=nfields1_hm+1
+    do k=1,nzm
+        do i=1,nsx
+            tmp(i,1,k)=q_hm_map(i,k)
+        end do
+    end do
+    name='Q0_Out'
+    long_name='Output Water Vapor For Host Model'
+    units='kg/kg'
+    call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
+
+    nfields1_hm=nfields1_hm+1
+    do k=1,nzm
+        do i=1,nsx
+            tmp(i,1,k)=w_hm_map(i,k)
+        end do
+    end do
+    name='W_SUB_OUT'
+    long_name='Output Large Scale Z Wind For Host Model'
+    units='m/s'
+    call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
+
+    nfields1_hm=nfields1_hm+1
+    do k=1,nzm
+        do i=1,nsx
+            tmp(i,1,k)=u_hm_map_edge(i,k)
+        end do
+    end do
+    name='u_hm_map_edge'
+    long_name='X Wind at edge of subdomain For Host Model'
+    units='m/s'
+    call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
+
+   
+    nfields1_hm=nfields1_hm+1
+    do k=1,nzm
+        do i=1,nsx
+            tmp(i,1,k)=v_hm_map_edge(i,k)
+        end do
+    end do
+    name='v_hm_map_edge'
+    long_name='Y Wind at edge of subdomain For Host Model'
+    units='m/s'
+    call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
+
+    if(nfields_hm.ne.nfields1_hm) then
+        print*,'host model write_fields3D error: nfields_hm=',nfields_hm,'  nfields1_hm=',nfields1_hm
+        call task_abort()
+    end if
+
+    close (46)
+
+    print*, 'Appending 3D data. file:'//filename
+
+end subroutine output_host_model
+
+
+
+subroutine output_host_model_single_variable(u0_in, v_name,v_longname,v_unit)
+	
+    use vars
+
+    implicit none
+    real, intent(in) :: u0_in(nsx, nzm)
+    character(*), intent(in) :: v_name, v_longname, v_unit
+    character *120 filename
+    character *80 long_name
+    character *8 name
+    character *10 timechar
+    character *4 rankchar
+    character *5 sepchar
+    character *6 filetype
+    character *10 units
+   
+
+    integer i,k,nfields_hm,nfields1_hm
+    real(4) tmp(nsx,1,nzm)
+    integer, external :: lenstr
+    name = v_name
+    long_name = v_longname
+    units = v_unit
+    nfields_hm=1
+    nfields1_hm=0
+
+    sepchar=""
+
+    write(rankchar,'(i4)') 1 !nsubdomains
+    write(timechar,'(i10)') nstep
+    do k=1,11-lenstr(timechar)-1
+    timechar(k:k)='0'
+    end do
+
+    print*, 'Rank=', rank, '*************begin output_host_model***************'
+
+    filetype = '.bin2D'
+    filename='./OUT_3D/host_model_output_all_v/'//trim(case)//'_'//trim(caseid)//&
+    '_'//trim(name)//filetype//sepchar
+    if(nrestart.eq.0.and.notopened3D) then
+        open(46,file=filename,status='unknown',form='unformatted')	
+    else
+        open(46,file=filename,status='unknown', &
+                            form='unformatted', position='append')
+    end if
+    notopened3D=.false.
+    write(46) nsx,1,nzm,1,1,1,nfields_hm
+    do k=1,nzm
+        write(46) real(z(k),4)
+    end do
+    do k=1,nzm
+        write(46) real(pres(k),4)
+    end do
+    write(46) real(dx_hm,4)  
+    write(46) real(dy,4)
+    write(46) real(float(nstep)*dt/(3600.*24.)+day0,4)
+
+  
+    nfields1_hm=nfields1_hm+1
+    do k=1,nzm
+        do i=1,nsx
+            tmp(i,1,k)=u0_in(i,k)
+        end do
+    end do
+    call compress3D_hm(tmp,nsx,1,nzm, name,long_name,units)
+
+    if(nfields_hm.ne.nfields1_hm) then
+        print*,'host model write_fields3D error: nfields_hm=',nfields_hm,'  nfields1_hm=',nfields1_hm
+        call task_abort()
+    end if
+
+    close (46)
+
+    print*, 'Appending 3D data. file:'//filename
+
+end subroutine output_host_model_single_variable
+
+
+
+subroutine compress3D_hm (f,nx,ny,nz,name, long_name, units)
+    implicit none
+
+    integer nx,ny,nz
+    real(4) f(nx,1,nz)
+    character*(*) name,long_name,units
+
+    integer(2), allocatable :: byte(:)
+    real(4), allocatable :: byte4(:)
+    integer size,count
+
+    character(10) value_min(nz), value_max(nz)
+    character(7) form
+    integer int_fac, integer_max, integer_min
+    parameter (int_fac=2,integer_min=-32000, integer_max=32000)
+    !	parameter (int_fac=1,integer_min=-127, integer_max=127)
+    real(4) f_max(1),f_min(1), f_max1(1), f_min1(1), scale
+    integer i,j,k,req
+
+    size=nx*ny*nz 
+    allocate (byte4(size))
+    count = 0
+
+    do k=1,nz
+        do i=1,nx
+            count = count+1
+            byte4(count) = f(i,1,k)
+        end do
+    end do
+
+    write(46) name,' ',long_name,' ',units
+    write(46) (byte4(k),k=1,count)
+
+    deallocate(byte4)
+
+end subroutine compress3D_hm
+	
+
+! 如果要输出txt
+! subroutine write_host_diag(u0_in, v0_in, t0_in, q0_in, &
+!                            u_hm_map, v_hm_map, t_hm_map, q_hm_map, w_hm_map, hm_step)
+
+!   use grid, only: nsx, nzm
+!   implicit none
+!   ! ===== 输入参数 =====
+!   real, intent(in) :: u0_in(nsx, nzm), v0_in(nsx, nzm), t0_in(nsx, nzm), q0_in(nsx, nzm)
+!   real, intent(in) :: u_hm_map(nsx, nzm), v_hm_map(nsx, nzm), t_hm_map(nsx, nzm), q_hm_map(nsx, nzm)
+!   real, intent(in) :: w_hm_map(nsx, nz)
+!   integer, intent(in) :: hm_step   ! 当前步数
+
+!   ! ===== 局部变量 =====
+!   integer :: iunit, i, k
+!   character(len=120) :: diagfile
+
+!   diagfile = './OUT_3D/host_model_output/host_model_diag.txt'
+
+!   ! 打开文件：存在则追加，不存在则新建
+!   open(newunit=iunit, file=diagfile, status='unknown', position='append', &
+!        action='write', form='formatted')
+
+!   write(iunit,*) '===== Host Model Diagnostic Output ====='
+!   write(iunit,*) 'Step:', hm_step
+
+!   ! -------- 写 9 个场 --------
+!   ! 输入
+!   call write_field(iunit, 'U0_In', 'Input X Wind Component', 'm/s', u0_in)
+!   call write_field(iunit, 'V0_In', 'Input Y Wind Component', 'm/s', v0_in)
+!   call write_field(iunit, 'T0_In', 'Input Liquid/Ice Water Static Energy', 'K', t0_in)
+!   call write_field(iunit, 'Q0_In', 'Input Water Vapor', 'g/kg', q0_in)
+
+!   ! 输出
+!   call write_field(iunit, 'U0_Out', 'Output X Wind Component', 'm/s', u_hm_map)
+!   call write_field(iunit, 'V0_Out', 'Output Y Wind Component', 'm/s', v_hm_map)
+!   call write_field(iunit, 'T0_Out', 'Output Liquid/Ice Water Static Energy', 'K', t_hm_map)
+!   call write_field(iunit, 'Q0_Out', 'Output Water Vapor', 'g/kg', q_hm_map)
+
+!   ! W 特殊：nz 层
+!   write(iunit,*) '--- W_SUB_OUT (Output Large Scale Z Wind, m/s) ---'
+!   do k = 1, nz
+!      write(iunit,'(100f12.5)') (w_hm_map(i,k), i=1,nsx)
+!   end do
+
+!   close(iunit)
+
+! end subroutine write_host_diag
+! subroutine write_field(iunit, name, long_name, units, f)
+!   use grid, only: nsx, nzm
+!   implicit none
+!   integer, intent(in) :: iunit
+!   character(*), intent(in) :: name, long_name, units
+!   real, intent(in) :: f(nsx, nzm)
+!   integer :: i, k
+
+!   write(iunit,*) '--- ', trim(name), ' (', trim(long_name), ', ', trim(units), ') ---'
+!   do k = 1, nzm
+!      write(iunit,'(100f12.5)') (f(i,k), i=1,nsx)
+!   end do
+! end subroutine write_field
 
 
 
