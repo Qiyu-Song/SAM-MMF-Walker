@@ -201,7 +201,7 @@ subroutine hm_couple_step()
         ! vg0_hm(1:nzm)          = v_hm_map(1,1:nzm)
         ! tg0_hm(1:nzm)          = t_hm_map(1,1:nzm)
         ! qg0_hm(1:nzm)          = q_hm_map(1,1:nzm)
-        ! wsub_map(:, :)         = w_hm_map(:, :)
+        wsub_map(:, :)         = w_hm_map(:, :)
        
 
         ! !----------------send back to subdomains---------------------------

@@ -95,6 +95,17 @@ subroutine host_model_evolve( &
 
   tmp(:, :) = dwdt_hm(:,1:nzm)
   call output_host_model_single_variable(tmp, 'dwdt1', 'dwdt_after_buoyancy' , 'm/s2')
+  call output_host_model_single_variable(qv0_in, 'qv0in1', 'qv0_in_for_buoyancy' , 'kg/kg')
+  call output_host_model_single_variable(qp0_in, 'qp0in1', 'qp0_in_for_buoyancy' , 'kg/kg')
+  call output_host_model_single_variable(qn0_in, 'qn0in1', 'qn0_in_for_buoyancy' , 'kg/kg')
+  call output_host_model_single_variable(tabs0_in, 'tabs0in1', 'tabs0_in_for_buoyancy' , 'K')
+
+  ! 1-1) damping
+  call damping_hm(u_hm_map, v_hm_map, w_hm_map, dudt_hm, dvdt_hm, dwdt_hm)
+  call output_host_model_single_variable(dudt_hm, 'dudt_dam', 'dudt_after_damping' , 'm/s2')
+  call output_host_model_single_variable(dvdt_hm, 'dvdt_dam', 'dvdt_after_damping' , 'm/s2')
+  tmp(:, :) = dwdt_hm(:,1:nzm)
+  call output_host_model_single_variable(tmp, 'dwdt_dam', 'dwdt_after_damping' , 'm/s2')
 
   ! 2) 动量平流（2D，二阶中心）
   call advect_mom_hm(u_hm_map, v_hm_map, w_hm_map, &
@@ -188,6 +199,55 @@ subroutine buoyancy_hm(tabs0_in, qv0_in, qn0_in, qp0_in, dwdt_hm)
   end do ! k
 
 end subroutine buoyancy_hm
+
+
+
+subroutine damping_hm(u_hm_map, v_hm_map, w_hm_map, dudt_hm, dvdt_hm, dwdt_hm)
+    use vars
+    implicit none
+
+    real, intent(in)  :: u_hm_map(nsx, nzm), v_hm_map(nsx, nzm), w_hm_map(nsx, nz)
+    real, intent(inout) :: dudt_hm(nsx, nzm), dvdt_hm(nsx, nzm), dwdt_hm(nsx, nz)
+
+    real :: u0_entire_domain(nzm), v0_entire_domain(nzm)
+
+    real tau_min	! minimum damping time-scale (at the top)
+    real tau_max    ! maxim damping time-scale (base of damping layer)
+    real damp_depth ! damping depth as a fraction of the domain height
+    parameter(tau_min=60., tau_max=1800., damp_depth=0.3)
+    real tau(nzm)   
+    integer i, k, n_damp
+
+   
+
+    do k=nzm,1,-1
+        if(z(nzm)-z(k).lt.damp_depth*z(nzm)) then 
+            n_damp=nzm-k+1
+        endif
+    end do
+    ! print*, 'n_damp', n_damp
+    do k=nzm,nzm-n_damp,-1
+        tau(k) = tau_min *(tau_max/tau_min)**((z(nzm)-z(k))/(z(nzm)-z(nzm-n_damp)))
+        tau(k)=1./tau(k)
+    end do
+    ! print*, 'finish tau'
+    do k = 1, nzm
+        u0_entire_domain(k) = sum( u_hm_map(:,k) ) / nsx
+        v0_entire_domain(k) = sum( v_hm_map(:,k) ) / nsx
+    end do
+    ! print*, 'horizontal mean'
+    do k = nzm, nzm-n_damp, -1
+        do i=1,nsx
+            dudt_hm(i,k)= dudt_hm(i,k)-(u_hm_map(i,k)-u0_entire_domain(k)) * tau(k)
+            dvdt_hm(i,k)= dvdt_hm(i,k)-(v_hm_map(i,k)-v0_entire_domain(k)) * tau(k)
+            dwdt_hm(i,k)= dwdt_hm(i,k)-w_hm_map(i,k) * tau(k)
+        end do
+    end do 
+
+    
+end subroutine damping_hm
+
+
 
 !================== 动量平流：2D 二阶中心 ==================
 
@@ -780,7 +840,7 @@ subroutine output_host_model(u0_in, v0_in, t0_in, q0_in,  &
     print*, 'Rank=', rank, '*************begin output_host_model***************'
 
     filetype = '.bin2D'
-    filename='./OUT_3D/host_model_output_all_v/'//trim(case)//'_'//trim(caseid)//&
+    filename='./OUT_3D/host_model_output_all_v_6/'//trim(case)//'_'//trim(caseid)//&
     filetype//sepchar
     if(nrestart.eq.0.and.notopened3D) then
         open(46,file=filename,status='unknown',form='unformatted')	
@@ -979,7 +1039,7 @@ subroutine output_host_model_single_variable(u0_in, v_name,v_longname,v_unit)
     print*, 'Rank=', rank, '*************begin output_host_model***************'
 
     filetype = '.bin2D'
-    filename='./OUT_3D/host_model_output_all_v/'//trim(case)//'_'//trim(caseid)//&
+    filename='./OUT_3D/host_model_output_all_v_6/'//trim(case)//'_'//trim(caseid)//&
     '_'//trim(name)//filetype//sepchar
     if(nrestart.eq.0.and.notopened3D) then
         open(46,file=filename,status='unknown',form='unformatted')	
