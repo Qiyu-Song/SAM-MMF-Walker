@@ -199,7 +199,7 @@ logical:: dosavemultirestart=.false.
 real ttend_wavenoise(nzm),qtend_wavenoise(nzm)
 
 ! HOST MODEL (2025.9)
-integer, parameter :: nsx = nsubdomains_x
+integer, parameter :: nsx = nsubdomains_x/2
 real dx_hm
 real dt_hm
 

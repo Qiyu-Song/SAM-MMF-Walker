@@ -1,6 +1,7 @@
 module module_hostmodel
   use grid, only: nsx, nzm, nz, adz, adzw, dz, dx_hm, dt_hm
   use vars, only: rho, rhow, hm_step
+  use domain, only: nsubdomains_x
   implicit none
   private
   public :: host_model_init, host_model_finalize, host_model_evolve, nudging_hm
@@ -14,7 +15,7 @@ subroutine host_model_init()
   implicit none
 
   if (.not. allocated(wsub_map)) then
-    allocate(wsub_map(nsx, nz))
+    allocate(wsub_map(nsubdomains_x, nz))
   end if
 
   if (.not. wsub_inited) then
@@ -22,6 +23,8 @@ subroutine host_model_init()
     wsub_inited = .true.
     hm_step = 0
   end if
+  ! 平均subdomain里的sst
+  sstxy(1:nx, 1:ny) = sum(sstxy(:,:))/(nx*ny)
 end subroutine host_model_init
 
 
@@ -36,27 +39,27 @@ end subroutine host_model_finalize
 subroutine host_model_evolve( &
   u0_in, v0_in, wsub_in, t0_in, q0_in,  &
   tabs0_in, qv0_in, qn0_in, qp0_in, &
-  u_hm_map, v_hm_map, w_hm_map, t_hm_map, q_hm_map)
+  u_out_map, v_out_map, w_out_map, t_out_map, q_out_map)
 
   implicit none
   ! -------- 输入（不含 ghost） --------
-  real, intent(in) :: u0_in(nsx, nzm)
-  real, intent(in) :: v0_in(nsx, nzm)
-  real, intent(in) :: wsub_in(nsx, nz)
-  real, intent(in) :: t0_in(nsx, nzm)
-  real, intent(in) :: q0_in(nsx, nzm)
-  real, intent(in) :: tabs0_in(nsx, nzm)
-  real, intent(in) :: qv0_in(nsx, nzm)
-  real, intent(in) :: qn0_in(nsx, nzm)
-  real, intent(in) :: qp0_in(nsx, nzm)
+  real, intent(in) :: u0_in(nsubdomains_x, nzm)
+  real, intent(in) :: v0_in(nsubdomains_x, nzm)
+  real, intent(in) :: wsub_in(nsubdomains_x, nz)
+  real, intent(in) :: t0_in(nsubdomains_x, nzm)
+  real, intent(in) :: q0_in(nsubdomains_x, nzm)
+  real, intent(in) :: tabs0_in(nsubdomains_x, nzm)
+  real, intent(in) :: qv0_in(nsubdomains_x, nzm)
+  real, intent(in) :: qn0_in(nsubdomains_x, nzm)
+  real, intent(in) :: qp0_in(nsubdomains_x, nzm)
   
 
   ! -------- 输出（不含 ghost） --------
-  real, intent(out) :: u_hm_map(nsx, nzm)
-  real, intent(out) :: v_hm_map(nsx, nzm)
-  real, intent(out) :: w_hm_map(nsx, nz)
-  real, intent(out) :: t_hm_map(nsx, nzm)
-  real, intent(out) :: q_hm_map(nsx, nzm)
+  real, intent(out) :: u_out_map(nsubdomains_x, nzm)
+  real, intent(out) :: v_out_map(nsubdomains_x, nzm)
+  real, intent(out) :: w_out_map(nsubdomains_x, nz)
+  real, intent(out) :: t_out_map(nsubdomains_x, nzm)
+  real, intent(out) :: q_out_map(nsubdomains_x, nzm)
 
   ! -------- 局部 --------
   real :: dudt_hm(nsx, nzm), dvdt_hm(nsx, nzm), dwdt_hm(nsx, nz)
@@ -64,44 +67,63 @@ subroutine host_model_evolve( &
   real :: u1_hm_map(nsx, nzm), v1_hm_map(nsx, nzm), w1_hm_map(nsx, nz)
   real :: p_phys(nsx, nzm)    ! 压力势（诊断用，可不输出）
   real :: tmp(nsx, nzm)
-  real :: u_hm_map_edge(nsx, nzm)
-  real :: v_hm_map_edge(nsx, nzm)
-
+  ! real :: u_hm_map_edge(nsx, nzm)
+  ! real :: v_hm_map_edge(nsx, nzm)
+  real :: u_hm_map(nsx, nzm), v_hm_map(nsx, nzm), w_hm_map(nsx, nz), t_hm_map(nsx, nzm), q_hm_map(nsx, nzm)
+  real :: tabs0_hm_map(nsx, nzm), qv0_hm_map(nsx, nzm), qn0_hm_map(nsx, nzm), qp0_hm_map(nsx, nzm)
   
   ! 拷贝初值
-  u_hm_map = u0_in
-  v_hm_map = v0_in
-  w_hm_map = wsub_in
-  t_hm_map = t0_in
-  q_hm_map = q0_in
+  ! u_hm_map = u0_in
+  ! v_hm_map = v0_in
+  ! w_hm_map = wsub_in
+  ! t_hm_map = t0_in
+  ! q_hm_map = q0_in
 
   ! interpolate for u,v since using Arakawa C-type grid
   ! u,v should be on the left boundary of grid box
-  tmp(1,     :) = 0.5 * (u_hm_map(1,     :) + u_hm_map(nsx,     :))
-  tmp(2:nsx, :) = 0.5 * (u_hm_map(2:nsx, :) + u_hm_map(1:nsx-1, :))
-  u_hm_map = tmp
+  ! tmp(1,     :) = 0.5 * (u_hm_map(1,     :) + u_hm_map(nsx,     :))
+  ! tmp(2:nsx, :) = 0.5 * (u_hm_map(2:nsx, :) + u_hm_map(1:nsx-1, :))
+  ! u_hm_map = tmp
 
-  tmp(1,     :) = 0.5 * (v_hm_map(1,     :) + v_hm_map(nsx,     :))
-  tmp(2:nsx, :) = 0.5 * (v_hm_map(2:nsx, :) + v_hm_map(1:nsx-1, :))
-  v_hm_map = tmp
+  ! tmp(1,     :) = 0.5 * (v_hm_map(1,     :) + v_hm_map(nsx,     :))
+  ! tmp(2:nsx, :) = 0.5 * (v_hm_map(2:nsx, :) + v_hm_map(1:nsx-1, :))
+  ! v_hm_map = tmp
+
+  ! 平均变量到粗网格
+  call pair_avg_U(u0_in, u_hm_map)
+  call pair_avg_U(v0_in, v_hm_map)
+  call pair_avg_T(t0_in, t_hm_map)
+  call pair_avg_T(q0_in, q_hm_map)
+  call pair_avg_w(wsub_in, w_hm_map)
+  call pair_avg_T(tabs0_in, tabs0_hm_map)
+  call pair_avg_T(qv0_in, qv0_hm_map)
+  call pair_avg_T(qn0_in, qn0_hm_map)
+  call pair_avg_T(qp0_in, qp0_hm_map)
+
+  v_hm_map = 0.
 
   call output_host_model_single_variable(u_hm_map, 'U00', 'U_after_1st_interpolation' , 'm/s')
   call output_host_model_single_variable(v_hm_map, 'V00', 'V_after_1st_interpolation' , 'm/s')
+  call output_host_model_single_variable(t_hm_map, 'T00', 'T_after_1st_interpolation' , 'K')
+  call output_host_model_single_variable(q_hm_map, 'Q00', 'Q_after_1st_interpolation' , 'kg/kg')
+  tmp(:, :) = w_hm_map(:,1:nzm)
+  call output_host_model_single_variable(tmp, 'W00', 'W_after_buoyancy' , 'm/s2')
 
   dudt_hm = 0.0; dvdt_hm = 0.0; dwdt_hm = 0.0
 
   ! 1) 浮力
-  call buoyancy_hm(tabs0_in, qv0_in, qn0_in, qp0_in, dwdt_hm)
+  call buoyancy_hm(tabs0_hm_map, qv0_hm_map, qn0_hm_map, qp0_hm_map, dwdt_hm)
 
   tmp(:, :) = dwdt_hm(:,1:nzm)
   call output_host_model_single_variable(tmp, 'dwdt1', 'dwdt_after_buoyancy' , 'm/s2')
-  call output_host_model_single_variable(qv0_in, 'qv0in1', 'qv0_in_for_buoyancy' , 'kg/kg')
-  call output_host_model_single_variable(qp0_in, 'qp0in1', 'qp0_in_for_buoyancy' , 'kg/kg')
-  call output_host_model_single_variable(qn0_in, 'qn0in1', 'qn0_in_for_buoyancy' , 'kg/kg')
-  call output_host_model_single_variable(tabs0_in, 'tabs0in1', 'tabs0_in_for_buoyancy' , 'K')
+  call output_host_model_single_variable(qv0_hm_map, 'qv01', 'qv0_hm_map_for_buoyancy' , 'kg/kg')
+  call output_host_model_single_variable(qp0_hm_map, 'qp01', 'qp0_hm_map_for_buoyancy' , 'kg/kg')
+  call output_host_model_single_variable(qn0_hm_map, 'qn01', 'qn0_hm_map_for_buoyancy' , 'kg/kg')
+  call output_host_model_single_variable(tabs0_hm_map, 'tabs01', 'tabs0_hm_map_for_buoyancy' , 'K')
 
   ! 1-1) damping
   call damping_hm(u_hm_map, v_hm_map, w_hm_map, dudt_hm, dvdt_hm, dwdt_hm)
+
   call output_host_model_single_variable(dudt_hm, 'dudt_dam', 'dudt_after_damping' , 'm/s2')
   call output_host_model_single_variable(dvdt_hm, 'dvdt_dam', 'dvdt_after_damping' , 'm/s2')
   tmp(:, :) = dwdt_hm(:,1:nzm)
@@ -137,30 +159,37 @@ subroutine host_model_evolve( &
   call output_host_model_single_variable(v1_hm_map, 'V41', 'V1_after_adams' , 'm/s')
   tmp(:, :) = w1_hm_map(:,1:nzm)
   call output_host_model_single_variable(tmp, 'W41', 'W1_after_adams' , 'm/s')
+
   ! 5) 标量平流（上风，正定）
   call advect_scalars_hm(t_hm_map, u1_hm_map, w1_hm_map)
   call advect_scalars_hm(q_hm_map, u1_hm_map, w1_hm_map)
 
-  u_hm_map_edge = u_hm_map
-  v_hm_map_edge = v_hm_map
+  ! u_hm_map_edge = u_hm_map
+  ! v_hm_map_edge = v_hm_map
 
-  ! interpolate back for u,v (due to Arakawa C-type grid)
-  tmp(1:nsx-1, :) = 0.5 * (u_hm_map(1:nsx-1, :) + u_hm_map(2:nsx, :))
-  tmp(nsx,     :) = 0.5 * (u_hm_map(nsx,     :) + u_hm_map(1,     :))
-  u_hm_map = tmp
+  ! ! interpolate back for u,v (due to Arakawa C-type grid)
+  ! tmp(1:nsx-1, :) = 0.5 * (u_hm_map(1:nsx-1, :) + u_hm_map(2:nsx, :))
+  ! tmp(nsx,     :) = 0.5 * (u_hm_map(nsx,     :) + u_hm_map(1,     :))
+  ! u_hm_map = tmp
 
-  tmp(1:nsx-1, :) = 0.5 * (v_hm_map(1:nsx-1, :) + v_hm_map(2:nsx, :))
-  tmp(nsx,     :) = 0.5 * (v_hm_map(nsx,     :) + v_hm_map(1,     :))
-  v_hm_map = tmp
+  ! tmp(1:nsx-1, :) = 0.5 * (v_hm_map(1:nsx-1, :) + v_hm_map(2:nsx, :))
+  ! tmp(nsx,     :) = 0.5 * (v_hm_map(nsx,     :) + v_hm_map(1,     :))
+  ! v_hm_map = tmp
 
+  ! 插值回去
+  call copy_interp_U(u_hm_map, u_out_map)
+  call copy_interp_U(v_hm_map, v_out_map)
+  call copy_interp_T(t_hm_map, t_out_map)
+  call copy_interp_T(q_hm_map, q_out_map)
+  call copy_interp_w(w_hm_map, w_out_map)
+  ! 输出in, out (nsubdomains_x,)
   call output_host_model(u0_in, v0_in, t0_in, q0_in,  &
-                          u_hm_map, v_hm_map, t_hm_map, q_hm_map, w_hm_map, u_hm_map_edge, v_hm_map_edge)
+                          u_out_map, v_out_map, t_out_map, q_out_map, w_out_map,&
+                          tabs0_in, qv0_in, qn0_in, qp0_in)
 
-  ! call write_host_diag(u0_in, v0_in, t0_in, q0_in, &
-  !                    u_hm_map, v_hm_map, t_hm_map, q_hm_map, w_hm_map, hm_step)
-
- 
 end subroutine host_model_evolve
+
+
 
 subroutine buoyancy_hm(tabs0_in, qv0_in, qn0_in, qp0_in, dwdt_hm)
   use vars
@@ -214,7 +243,7 @@ subroutine damping_hm(u_hm_map, v_hm_map, w_hm_map, dudt_hm, dvdt_hm, dwdt_hm)
     real tau_min	! minimum damping time-scale (at the top)
     real tau_max    ! maxim damping time-scale (base of damping layer)
     real damp_depth ! damping depth as a fraction of the domain height
-    parameter(tau_min=60., tau_max=1800., damp_depth=0.3)
+    parameter(tau_min=1800., tau_max=3600., damp_depth=0.3)
     real tau(nzm)   
     integer i, k, n_damp
 
@@ -801,17 +830,15 @@ end subroutine nudging_hm
 
      
 subroutine output_host_model(u0_in, v0_in, t0_in, q0_in,  &
-  u_hm_map, v_hm_map, t_hm_map, q_hm_map, w_hm_map, u_hm_map_edge, v_hm_map_edge)
+  u_out_map, v_out_map, t_out_map, q_out_map, w_out_map,  &
+  tabs0_in, qv0_in, qn0_in, qp0_in)         ! 输出形状是（nsubdomains_x，nzm ）的变量
 	
     use vars
 
     implicit none
-    real, intent(in) :: u0_in(nsx, nzm), v0_in(nsx, nzm), t0_in(nsx, nzm), q0_in(nsx, nzm)
-    real, intent(in)  :: u_hm_map(nsx, nzm), v_hm_map(nsx, nzm), t_hm_map(nsx, nzm), q_hm_map(nsx, nzm), w_hm_map(nsx, nz)
-    real, intent(in)  :: u_hm_map_edge(nsx, nzm), v_hm_map_edge(nsx, nzm)
-   
-
-
+    real, intent(in) :: u0_in(nsubdomains_x, nzm), v0_in(nsubdomains_x, nzm), t0_in(nsubdomains_x, nzm), q0_in(nsubdomains_x, nzm)
+    real, intent(in) :: u_out_map(nsubdomains_x, nzm), v_out_map(nsubdomains_x, nzm), t_out_map(nsubdomains_x, nzm), q_out_map(nsubdomains_x, nzm), w_out_map(nsubdomains_x, nz)
+    real, intent(in) :: tabs0_in(nsubdomains_x, nzm), qv0_in(nsubdomains_x, nzm), qn0_in(nsubdomains_x, nzm), qp0_in(nsubdomains_x, nzm)
     character *120 filename
     character *80 long_name
     character *8 name
@@ -822,11 +849,11 @@ subroutine output_host_model(u0_in, v0_in, t0_in, q0_in,  &
     character *10 units
 
     integer i,k,nfields_hm,nfields1_hm
-    real(4) tmp(nsx,1,nzm)
+    real(4) tmp(nsubdomains_x,1,nzm)
     integer, external :: lenstr
 
 
-    nfields_hm=11 ! number of 3D fields to save
+    nfields_hm=13 ! number of 3D fields to save
     nfields1_hm=0
 
     sepchar=""
@@ -840,7 +867,7 @@ subroutine output_host_model(u0_in, v0_in, t0_in, q0_in,  &
     print*, 'Rank=', rank, '*************begin output_host_model***************'
 
     filetype = '.bin2D'
-    filename='./OUT_3D/host_model_output_all_v_6/'//trim(case)//'_'//trim(caseid)//&
+    filename='./OUT_3D/host_model_output_new_damping_2/'//trim(case)//'_'//trim(caseid)//&
     filetype//sepchar
     if(nrestart.eq.0.and.notopened3D) then
         open(46,file=filename,status='unknown',form='unformatted')	
@@ -850,7 +877,7 @@ subroutine output_host_model(u0_in, v0_in, t0_in, q0_in,  &
     end if
     notopened3D=.false.
 
-    write(46) nsx,1,nzm,1,1,1,nfields_hm
+    write(46) nsubdomains_x,1,nzm,1,1,1,nfields_hm
  
     do k=1,nzm
         write(46) real(z(k),4)
@@ -868,126 +895,148 @@ subroutine output_host_model(u0_in, v0_in, t0_in, q0_in,  &
   
     nfields1_hm=nfields1_hm+1
     do k=1,nzm
-        do i=1,nsx
+        do i=1,nsubdomains_x
             tmp(i,1,k)=u0_in(i,k)
         end do
     end do
     name='U0_In'
     long_name='Input X Wind Component For Host Model'
     units='m/s'
-    call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
+    call compress3D_hm(tmp,nsubdomains_x,1,nzm,name,long_name,units)
 
    
     nfields1_hm=nfields1_hm+1
     do k=1,nzm
-        do i=1,nsx
+        do i=1,nsubdomains_x
             tmp(i,1,k)=v0_in(i,k)
         end do
     end do
     name='V0_In'
     long_name='Input Y Wind Component For Host Model'
     units='m/s'
-    call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
+    call compress3D_hm(tmp,nsubdomains_x,1,nzm,name,long_name,units)
 
     nfields1_hm=nfields1_hm+1
     do k=1,nzm
-        do i=1,nsx
+        do i=1,nsubdomains_x
             tmp(i,1,k)=t0_in(i,k)
         end do
     end do
     name='T0_In'
     long_name='Input Liquid/Ice Water Static Energy For Host Model'
     units='K'
-    call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
+    call compress3D_hm(tmp,nsubdomains_x,1,nzm,name,long_name,units)
 
     nfields1_hm=nfields1_hm+1
     do k=1,nzm
-        do i=1,nsx
+        do i=1,nsubdomains_x
             tmp(i,1,k)=q0_in(i,k)
         end do
     end do
     name='Q0_In'
     long_name='Input Water Vapor For Host Model'
     units='kg/kg'
-    call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
+    call compress3D_hm(tmp,nsubdomains_x,1,nzm,name,long_name,units)
 
     nfields1_hm=nfields1_hm+1
     do k=1,nzm
-        do i=1,nsx
-            tmp(i,1,k)=u_hm_map(i,k)
+        do i=1,nsubdomains_x
+            tmp(i,1,k)=tabs0_in(i,k)
+        end do
+    end do
+    name='Tabs0_In'
+    long_name='Input Tabs For Host Model'
+    units='K'
+    call compress3D_hm(tmp,nsubdomains_x,1,nzm,name,long_name,units)
+
+    nfields1_hm=nfields1_hm+1
+    do k=1,nzm
+        do i=1,nsubdomains_x
+            tmp(i,1,k)=qv0_in(i,k)
+        end do
+    end do
+    name='Qv0_In'
+    long_name='Input Qv0 For Host Model'
+    units='kg/kg'
+    call compress3D_hm(tmp,nsubdomains_x,1,nzm,name,long_name,units)
+    
+    nfields1_hm=nfields1_hm+1
+    do k=1,nzm
+        do i=1,nsubdomains_x
+            tmp(i,1,k)=qn0_in(i,k)
+        end do
+    end do
+    name='Qn0_In'
+    long_name='Input Qn0 For Host Model'
+    units='kg/kg'
+    call compress3D_hm(tmp,nsubdomains_x,1,nzm,name,long_name,units)
+
+    nfields1_hm=nfields1_hm+1
+    do k=1,nzm
+        do i=1,nsubdomains_x
+            tmp(i,1,k)=qp0_in(i,k)
+        end do
+    end do
+    name='Qp0_In'
+    long_name='Input Qp0 For Host Model'
+    units='kg/kg'
+    call compress3D_hm(tmp,nsubdomains_x,1,nzm,name,long_name,units)
+
+    nfields1_hm=nfields1_hm+1
+    do k=1,nzm
+        do i=1,nsubdomains_x
+            tmp(i,1,k)=u_out_map(i,k)
         end do
     end do
     name='U0_Out'
     long_name='Output X Wind Component For Host Model'
     units='m/s'
-    call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
+    call compress3D_hm(tmp,nsubdomains_x,1,nzm,name,long_name,units)
 
     nfields1_hm=nfields1_hm+1
     do k=1,nzm
-        do i=1,nsx
-            tmp(i,1,k)=v_hm_map(i,k)
+        do i=1,nsubdomains_x
+            tmp(i,1,k)=v_out_map(i,k)
         end do
     end do
     name='V0_Out'
     long_name='Output Y Wind Component For Host Model'
     units='m/s'
-    call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
+    call compress3D_hm(tmp,nsubdomains_x,1,nzm,name,long_name,units)
 
     nfields1_hm=nfields1_hm+1
     do k=1,nzm
-        do i=1,nsx
-            tmp(i,1,k)=t_hm_map(i,k)
+        do i=1,nsubdomains_x
+            tmp(i,1,k)=t_out_map(i,k)
         end do
     end do
     name='T0_Out'
     long_name='Output Liquid/Ice Water Static Energy For Host Model'
     units='K'
-    call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
+    call compress3D_hm(tmp,nsubdomains_x,1,nzm,name,long_name,units)
 
     nfields1_hm=nfields1_hm+1
     do k=1,nzm
-        do i=1,nsx
-            tmp(i,1,k)=q_hm_map(i,k)
+        do i=1,nsubdomains_x
+            tmp(i,1,k)=q_out_map(i,k)
         end do
     end do
     name='Q0_Out'
     long_name='Output Water Vapor For Host Model'
     units='kg/kg'
-    call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
+    call compress3D_hm(tmp,nsubdomains_x,1,nzm,name,long_name,units)
 
     nfields1_hm=nfields1_hm+1
     do k=1,nzm
-        do i=1,nsx
-            tmp(i,1,k)=w_hm_map(i,k)
+        do i=1,nsubdomains_x
+            tmp(i,1,k)=w_out_map(i,k)
         end do
     end do
     name='W_SUB_OUT'
     long_name='Output Large Scale Z Wind For Host Model'
     units='m/s'
-    call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
+    call compress3D_hm(tmp,nsubdomains_x,1,nzm,name,long_name,units)
 
-    nfields1_hm=nfields1_hm+1
-    do k=1,nzm
-        do i=1,nsx
-            tmp(i,1,k)=u_hm_map_edge(i,k)
-        end do
-    end do
-    name='u_hm_map_edge'
-    long_name='X Wind at edge of subdomain For Host Model'
-    units='m/s'
-    call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
-
-   
-    nfields1_hm=nfields1_hm+1
-    do k=1,nzm
-        do i=1,nsx
-            tmp(i,1,k)=v_hm_map_edge(i,k)
-        end do
-    end do
-    name='v_hm_map_edge'
-    long_name='Y Wind at edge of subdomain For Host Model'
-    units='m/s'
-    call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
 
     if(nfields_hm.ne.nfields1_hm) then
         print*,'host model write_fields3D error: nfields_hm=',nfields_hm,'  nfields1_hm=',nfields1_hm
@@ -1002,7 +1051,7 @@ end subroutine output_host_model
 
 
 
-subroutine output_host_model_single_variable(u0_in, v_name,v_longname,v_unit)
+subroutine output_host_model_single_variable(u0_in, v_name,v_longname,v_unit) ! 输出形状是（nsx， ）的变量
 	
     use vars
 
@@ -1036,10 +1085,10 @@ subroutine output_host_model_single_variable(u0_in, v_name,v_longname,v_unit)
     timechar(k:k)='0'
     end do
 
-    print*, 'Rank=', rank, '*************begin output_host_model***************'
+    print*, 'Rank=', rank, '*************begin output_hm_single_variable***************'
 
     filetype = '.bin2D'
-    filename='./OUT_3D/host_model_output_all_v_6/'//trim(case)//'_'//trim(caseid)//&
+    filename='./OUT_3D/host_model_output_new_damping_2/'//trim(case)//'_'//trim(caseid)//&
     '_'//trim(name)//filetype//sepchar
     if(nrestart.eq.0.and.notopened3D) then
         open(46,file=filename,status='unknown',form='unformatted')	
@@ -1180,7 +1229,139 @@ end subroutine compress3D_hm
 !   end do
 ! end subroutine write_field
 
+subroutine pair_avg_U(u_hi_res, u_lo_res)
+    use grid, only: nsx, nzm
+    use domain, only: nsubdomains_x
+    implicit none
+    real, intent(in)   :: u_hi_res(nsubdomains_x,nzm)
+    real, intent(out)  :: u_lo_res(nsx,nzm)
+
+    u_lo_res(1,:) = 0.5*(u_hi_res(nsubdomains_x,:) + u_hi_res(1,:))
+    u_lo_res(2:nsx,:) = 0.5*( u_hi_res(2:nsubdomains_x-2:2,:) + u_hi_res(3:nsubdomains_x-1:2,:) )
+end subroutine pair_avg_U
 
 
+subroutine pair_avg_T(T_hi_res, T_lo_res)
+    use grid, only: nsx, nzm
+    use domain, only: nsubdomains_x
+    implicit none
+    real, intent(in)   :: T_hi_res(nsubdomains_x,nzm)
+    real, intent(out)  :: T_lo_res(nsx,nzm)
+
+    T_lo_res(1:nsx,:) = 0.5*( T_hi_res(1:nsubdomains_x-1:2,:) + T_hi_res(2:nsubdomains_x:2,:) )
+    
+end subroutine pair_avg_T
+
+subroutine pair_avg_w(T_hi_res, T_lo_res)
+    use grid, only: nsx, nz
+    use domain, only: nsubdomains_x
+    implicit none
+    real, intent(in)   :: T_hi_res(nsubdomains_x,nz)
+    real, intent(out)  :: T_lo_res(nsx,nz)
+
+    T_lo_res(1:nsx,:) = 0.5*( T_hi_res(1:nsubdomains_x-1:2,:) + T_hi_res(2:nsubdomains_x:2,:) )
+    
+end subroutine pair_avg_w
+
+
+subroutine inv_pair_interp_U(u_lo_res, u_hi_res)
+    use grid, only: nsx, nzm
+    use domain, only: nsubdomains_x
+    implicit none
+    real, intent(in)   :: u_lo_res(nsx,nzm) 
+    real, intent(out)  :: u_hi_res(nsubdomains_x,nzm)
+    integer p, pp
+
+    do p = 1, nsx-1   
+      pp = p + 2
+      if (pp > nsx) pp = pp - nsx       
+      u_hi_res(2*p, :) = 0.25*u_lo_res(p, :) + 0.75*u_lo_res(p + 1, :)
+      u_hi_res(2*p + 1, :) = 0.25*u_lo_res(p + 2, :) + 0.75*u_lo_res(p + 1, :)
+    end do
+    u_hi_res(1, :) = 0.25*u_lo_res(2, :) + 0.75*u_lo_res(1, :)
+    u_hi_res(nsubdomains_x, :) = 0.25*u_lo_res(nsx, :) + 0.75*u_lo_res(1, :)
+end subroutine inv_pair_interp_U
+
+
+subroutine inv_pair_interp_T(T_lo_res, T_hi_res)
+    use grid, only: nsx, nzm
+    use domain, only: nsubdomains_x
+    implicit none
+    real, intent(in)   :: T_lo_res(nsx,nzm)
+    real, intent(out)  :: T_hi_res(nsubdomains_x,nzm)
+    integer p
+
+    do p = 1, nsx-1            
+      T_hi_res(2*p, :) = 0.75*T_lo_res(p, :) + 0.25*T_lo_res(p + 1, :)
+      T_hi_res(2*p + 1, :) = 0.25*T_lo_res(p, :) + 0.75*T_lo_res(p + 1, :)
+    end do
+    T_hi_res(1, :) = 0.25*T_lo_res(nsx, :) + 0.75*T_lo_res(1, :)
+    T_hi_res(nsubdomains_x, :) = 0.75*T_lo_res(nsx, :) + 0.25*T_lo_res(1, :)
+end subroutine inv_pair_interp_T
+
+subroutine inv_pair_interp_w(T_lo_res, T_hi_res)
+    use grid, only: nsx, nz
+    use domain, only: nsubdomains_x
+    implicit none
+    real, intent(in)   :: T_lo_res(nsx,nz)
+    real, intent(out)  :: T_hi_res(nsubdomains_x,nz)
+    integer p
+
+    do p = 1, nsx-1            
+      T_hi_res(2*p, :) = 0.75*T_lo_res(p, :) + 0.25*T_lo_res(p + 1, :)
+      T_hi_res(2*p + 1, :) = 0.25*T_lo_res(p, :) + 0.75*T_lo_res(p + 1, :)
+    end do
+    T_hi_res(1, :) = 0.25*T_lo_res(nsx, :) + 0.75*T_lo_res(1, :)
+    T_hi_res(nsubdomains_x, :) = 0.75*T_lo_res(nsx, :) + 0.25*T_lo_res(1, :)
+end subroutine inv_pair_interp_w
+
+
+subroutine copy_interp_U(u_lo_res, u_hi_res)
+    use grid, only: nsx, nzm
+    use domain, only: nsubdomains_x
+    implicit none
+    real, intent(in)   :: u_lo_res(nsx,nzm) 
+    real, intent(out)  :: u_hi_res(nsubdomains_x,nzm)
+    integer p
+
+    do p = 1, nsx-1         
+      u_hi_res(2*p, :) = u_lo_res(p + 1, :)
+      u_hi_res(2*p + 1, :) = u_lo_res(p + 1, :)
+    end do
+    u_hi_res(1, :) = u_lo_res(1, :)
+    u_hi_res(nsubdomains_x, :) = u_lo_res(1, :)
+end subroutine copy_interp_U
+
+subroutine copy_interp_T(T_lo_res, T_hi_res)
+    use grid, only: nsx, nzm
+    use domain, only: nsubdomains_x
+    implicit none
+    real, intent(in)   :: T_lo_res(nsx,nzm)
+    real, intent(out)  :: T_hi_res(nsubdomains_x,nzm)
+    integer p
+
+    do p = 1, nsx-1            
+      T_hi_res(2*p, :) = T_lo_res(p, :)
+      T_hi_res(2*p + 1, :) = T_lo_res(p + 1, :)
+    end do
+    T_hi_res(1, :) = T_lo_res(1, :)
+    T_hi_res(nsubdomains_x, :) = T_lo_res(nsx, :) 
+end subroutine copy_interp_T
+
+subroutine copy_interp_w(T_lo_res, T_hi_res)
+    use grid, only: nsx, nz
+    use domain, only: nsubdomains_x
+    implicit none
+    real, intent(in)   :: T_lo_res(nsx,nz)
+    real, intent(out)  :: T_hi_res(nsubdomains_x,nz)
+    integer p
+
+    do p = 1, nsx-1            
+      T_hi_res(2*p, :) = T_lo_res(p, :) 
+      T_hi_res(2*p + 1, :) = T_lo_res(p + 1, :)
+    end do
+    T_hi_res(1, :) = T_lo_res(1, :)
+    T_hi_res(nsubdomains_x, :) = T_lo_res(nsx, :)
+end subroutine copy_interp_w
 
 end module module_hostmodel

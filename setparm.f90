@@ -261,7 +261,7 @@ end if
         end if
 
         if(dompimmf) then
-          dx_hm = dx * nx
+          dx_hm = dx * nx * 2
           dt_hm = dt * nstephostmodel
           if(masterproc) then
             write(*,*) '*********************************************************'

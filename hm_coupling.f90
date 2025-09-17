@@ -18,8 +18,8 @@ subroutine hm_couple_step()
    
 
     real, allocatable :: u0_map(:,:), v0_map(:,:), t0_map(:,:), q0_map(:,:)
-    real, allocatable :: u_hm_map(:,:), v_hm_map(:,:), t_hm_map(:,:), q_hm_map(:,:)
-    real, allocatable :: w_hm_map(:,:)
+    real, allocatable :: u_out_map(:,:), v_out_map(:,:), t_out_map(:,:), q_out_map(:,:)
+    real, allocatable :: w_out_map(:,:)
     real, allocatable :: dummy2d(:,:)
 
     real,    allocatable :: rbuf_zm_hm(:,:)      ! (nzm, nexp_zm_hm)
@@ -29,16 +29,16 @@ subroutine hm_couple_step()
     real, allocatable :: tabs0_map(:,:), qv0_map(:,:), qn0_map(:,:), qp0_map(:,:)
 
     if (masterproc) then
-        allocate(u0_map(nsx, nzm), v0_map(nsx, nzm),  &
-                t0_map(nsx, nzm), q0_map(nsx, nzm),  &
-                tabs0_map(nsx, nzm), qv0_map(nsx, nzm),  &
-                qn0_map(nsx, nzm), qp0_map(nsx, nzm))
+        allocate(u0_map(nsubdomains_x, nzm), v0_map(nsubdomains_x, nzm),  &
+                t0_map(nsubdomains_x, nzm), q0_map(nsubdomains_x, nzm),  &
+                tabs0_map(nsubdomains_x, nzm), qv0_map(nsubdomains_x, nzm),  &
+                qn0_map(nsubdomains_x, nzm), qp0_map(nsubdomains_x, nzm))
                 
-        allocate(u_hm_map(nsx, nzm), v_hm_map(nsx, nzm),  &
-                t_hm_map(nsx, nzm), q_hm_map(nsx, nzm))
-        allocate(w_hm_map(nsx, nz))
+        allocate(u_out_map(nsubdomains_x, nzm), v_out_map(nsubdomains_x, nzm),  &
+                t_out_map(nsubdomains_x, nzm), q_out_map(nsubdomains_x, nzm))
+        allocate(w_out_map(nsubdomains_x, nz))
     else
-        allocate(dummy2d(nsx, nzm))  ! assign dummy to avoid alloc error
+        allocate(dummy2d(nsubdomains_x, nzm))  ! assign dummy to avoid alloc error
     end if
 
     do k = 1, nzm
@@ -64,51 +64,51 @@ subroutine hm_couple_step()
     
     ! gather u0
     if (masterproc) then
-        call task_bgather_float_map(0, u0_local_hm(1), nzm, nsx, u0_map)
+        call task_bgather_float_map(0, u0_local_hm(1), nzm, nsubdomains_x, u0_map)
     else
-        call task_bgather_float_map(0, u0_local_hm(1), nzm, nsx, dummy2d)
+        call task_bgather_float_map(0, u0_local_hm(1), nzm, nsubdomains_x, dummy2d)
     end if
     ! gather v0
     if (masterproc) then
-        call task_bgather_float_map(0, v0_local_hm(1), nzm, nsx, v0_map)
+        call task_bgather_float_map(0, v0_local_hm(1), nzm, nsubdomains_x, v0_map)
     else
-        call task_bgather_float_map(0, v0_local_hm(1), nzm, nsx, dummy2d)
+        call task_bgather_float_map(0, v0_local_hm(1), nzm, nsubdomains_x, dummy2d)
     end if
     ! gather t0
     if (masterproc) then
-        call task_bgather_float_map(0, t0_local_hm(1), nzm, nsx, t0_map)
+        call task_bgather_float_map(0, t0_local_hm(1), nzm, nsubdomains_x, t0_map)
     else
-        call task_bgather_float_map(0, t0_local_hm(1), nzm, nsx, dummy2d)
+        call task_bgather_float_map(0, t0_local_hm(1), nzm, nsubdomains_x, dummy2d)
     end if
     ! gather q0
     if (masterproc) then
-        call task_bgather_float_map(0, q0_local_hm(1), nzm, nsx, q0_map)
+        call task_bgather_float_map(0, q0_local_hm(1), nzm, nsubdomains_x, q0_map)
     else
-        call task_bgather_float_map(0, q0_local_hm(1), nzm, nsx, dummy2d)
+        call task_bgather_float_map(0, q0_local_hm(1), nzm, nsubdomains_x, dummy2d)
     end if
     ! gather tabs0
     if (masterproc) then
-        call task_bgather_float_map(0, tabs0_local_hm(1), nzm, nsx, tabs0_map)
+        call task_bgather_float_map(0, tabs0_local_hm(1), nzm, nsubdomains_x, tabs0_map)
     else
-        call task_bgather_float_map(0, tabs0_local_hm(1), nzm, nsx, dummy2d)
+        call task_bgather_float_map(0, tabs0_local_hm(1), nzm, nsubdomains_x, dummy2d)
     end if
     ! gather qv0
     if (masterproc) then
-        call task_bgather_float_map(0, qv0_local_hm(1), nzm, nsx, qv0_map)
+        call task_bgather_float_map(0, qv0_local_hm(1), nzm, nsubdomains_x, qv0_map)
     else
-        call task_bgather_float_map(0, qv0_local_hm(1), nzm, nsx, dummy2d)
+        call task_bgather_float_map(0, qv0_local_hm(1), nzm, nsubdomains_x, dummy2d)
     end if
     ! gather qn0
     if (masterproc) then
-        call task_bgather_float_map(0, qn0_local_hm(1), nzm, nsx, qn0_map)
+        call task_bgather_float_map(0, qn0_local_hm(1), nzm, nsubdomains_x, qn0_map)
     else
-        call task_bgather_float_map(0, qn0_local_hm(1), nzm, nsx, dummy2d)
+        call task_bgather_float_map(0, qn0_local_hm(1), nzm, nsubdomains_x, dummy2d)
     end if
     ! gather qp0
     if (masterproc) then
-        call task_bgather_float_map(0, qp0_local_hm(1), nzm, nsx, qp0_map)
+        call task_bgather_float_map(0, qp0_local_hm(1), nzm, nsubdomains_x, qp0_map)
     else
-        call task_bgather_float_map(0, qp0_local_hm(1), nzm, nsx, dummy2d)
+        call task_bgather_float_map(0, qp0_local_hm(1), nzm, nsubdomains_x, dummy2d)
     end if
     
     
@@ -194,14 +194,14 @@ subroutine hm_couple_step()
         call host_model_evolve( u0_in=u0_map, v0_in=v0_map, wsub_in=wsub_map, &
                             t0_in=t0_map, q0_in=q0_map,                    &
                             tabs0_in = tabs0_map, qv0_in = qv0_map, qn0_in = qn0_map, qp0_in = qp0_map,   &
-                            u_hm_map=u_hm_map, v_hm_map=v_hm_map,            &
-                            w_hm_map=w_hm_map, t_hm_map=t_hm_map, q_hm_map=q_hm_map )
+                            u_out_map=u_out_map, v_out_map=v_out_map,            &
+                            w_out_map=w_out_map, t_out_map=t_out_map, q_out_map=q_out_map )
 
         ! ug0_hm(1:nzm)          = u_hm_map(1,1:nzm)
         ! vg0_hm(1:nzm)          = v_hm_map(1,1:nzm)
         ! tg0_hm(1:nzm)          = t_hm_map(1,1:nzm)
         ! qg0_hm(1:nzm)          = q_hm_map(1,1:nzm)
-        wsub_map(:, :)         = w_hm_map(:, :)
+        wsub_map(:, :)         = w_out_map(:, :)
        
 
         ! !----------------send back to subdomains---------------------------
@@ -221,27 +221,27 @@ subroutine hm_couple_step()
 
     ! distribute ug0_hm
     if (masterproc) then
-        call task_bscatter_float_map(0, u_hm_map, nzm, nsx, ug0_hm(1))
+        call task_bscatter_float_map(0, u_out_map, nzm, nsubdomains_x, ug0_hm(1))
     else
-        call task_bscatter_float_map(0, dummy2d,  nzm, nsx, ug0_hm(1))
+        call task_bscatter_float_map(0, dummy2d,  nzm, nsubdomains_x, ug0_hm(1))
     end if
     ! distribute vg0_hm
     if (masterproc) then
-        call task_bscatter_float_map(0, v_hm_map, nzm, nsx, vg0_hm(1))
+        call task_bscatter_float_map(0, v_out_map, nzm, nsubdomains_x, vg0_hm(1))
     else
-        call task_bscatter_float_map(0, dummy2d,  nzm, nsx, vg0_hm(1))
+        call task_bscatter_float_map(0, dummy2d,  nzm, nsubdomains_x, vg0_hm(1))
     end if
     ! distribute tg0_hm
     if (masterproc) then
-        call task_bscatter_float_map(0, t_hm_map, nzm, nsx, tg0_hm(1))
+        call task_bscatter_float_map(0, t_out_map, nzm, nsubdomains_x, tg0_hm(1))
     else
-        call task_bscatter_float_map(0, dummy2d,  nzm, nsx, tg0_hm(1))
+        call task_bscatter_float_map(0, dummy2d,  nzm, nsubdomains_x, tg0_hm(1))
     end if
     ! distribute qg0_hm
     if (masterproc) then
-        call task_bscatter_float_map(0, q_hm_map, nzm, nsx, qg0_hm(1))
+        call task_bscatter_float_map(0, q_out_map, nzm, nsubdomains_x, qg0_hm(1))
     else
-        call task_bscatter_float_map(0, dummy2d,  nzm, nsx, qg0_hm(1))
+        call task_bscatter_float_map(0, dummy2d,  nzm, nsubdomains_x, qg0_hm(1))
     end if
 
     ! !------------------------------------------------------------
@@ -287,11 +287,11 @@ subroutine hm_couple_step()
         if (allocated(qv0_map))    deallocate(qv0_map)
         if (allocated(qn0_map))    deallocate(qn0_map)
         if (allocated(qp0_map))    deallocate(qp0_map)
-        if (allocated(u_hm_map))  deallocate(u_hm_map)  
-        if (allocated(v_hm_map))  deallocate(v_hm_map)  
-        if (allocated(t_hm_map))  deallocate(t_hm_map)  
-        if (allocated(q_hm_map))  deallocate(q_hm_map)  
-        if (allocated(w_hm_map))  deallocate(w_hm_map)  
+        if (allocated(u_out_map))  deallocate(u_out_map)  
+        if (allocated(v_out_map))  deallocate(v_out_map)  
+        if (allocated(t_out_map))  deallocate(t_out_map)  
+        if (allocated(q_out_map))  deallocate(q_out_map)  
+        if (allocated(w_out_map))  deallocate(w_out_map)  
     else
         if (allocated(dummy2d))  deallocate(dummy2d)
     end if
