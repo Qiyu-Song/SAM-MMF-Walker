@@ -21,6 +21,11 @@ subroutine host_model_init()
     wsub_map = 0.0     ! 设定初值
     wsub_inited = .true.
     hm_step = 0
+    u_hm_map_save = 0.
+    ! v_hm_map_save = 0.
+    ! w_hm_map_save = 0.
+    ! t_hm_map_save = 0.
+    ! q_hm_map_save = 0.
   end if
 end subroutine host_model_init
 
@@ -36,8 +41,8 @@ end subroutine host_model_finalize
 subroutine host_model_evolve( &
   u0_in, v0_in, wsub_in, t0_in, q0_in,  &
   tabs0_in, qv0_in, qn0_in, qp0_in, &
-  u_hm_map, v_hm_map, w_hm_map, t_hm_map, q_hm_map)
-
+  u_out_map, v_out_map, w_out_map, t_out_map, q_out_map)
+  use vars
   implicit none
   ! -------- 输入（不含 ghost） --------
   real, intent(in) :: u0_in(nsx, nzm)
@@ -52,41 +57,34 @@ subroutine host_model_evolve( &
   
 
   ! -------- 输出（不含 ghost） --------
-  real, intent(out) :: u_hm_map(nsx, nzm)
-  real, intent(out) :: v_hm_map(nsx, nzm)
-  real, intent(out) :: w_hm_map(nsx, nz)
-  real, intent(out) :: t_hm_map(nsx, nzm)
-  real, intent(out) :: q_hm_map(nsx, nzm)
+  real, intent(out) :: u_out_map(nsx, nzm)
+  real, intent(out) :: v_out_map(nsx, nzm)
+  real, intent(out) :: w_out_map(nsx, nz)
+  real, intent(out) :: t_out_map(nsx, nzm)
+  real, intent(out) :: q_out_map(nsx, nzm)
 
   ! -------- 局部 --------
   real :: dudt_hm(nsx, nzm), dvdt_hm(nsx, nzm), dwdt_hm(nsx, nz)
   ! for advection of scalars
   real :: u1_hm_map(nsx, nzm), v1_hm_map(nsx, nzm), w1_hm_map(nsx, nz)
   real :: p_phys(nsx, nzm)    ! 压力势（诊断用，可不输出）
-  real :: tmp(nsx, nzm)
-  real :: u_hm_map_edge(nsx, nzm)
-  real :: v_hm_map_edge(nsx, nzm)
+  real :: tmp(nsx, nzm), tmp1(nsx, nzm), tmp2(nsx, nzm)
+  real :: u_hm_map(nsx, nzm), v_hm_map(nsx, nzm), w_hm_map(nsx, nz), t_hm_map(nsx, nzm), q_hm_map(nsx, nzm)
 
-  
   ! 拷贝初值
-  u_hm_map = u0_in
-  v_hm_map = v0_in
+  ! u_hm_map = u0_in
+  ! v_hm_map = v0_in
   w_hm_map = wsub_in
   t_hm_map = t0_in
   q_hm_map = q0_in
 
-  ! interpolate for u,v since using Arakawa C-type grid
-  ! u,v should be on the left boundary of grid box
-  tmp(1,     :) = 0.5 * (u_hm_map(1,     :) + u_hm_map(nsx,     :))
-  tmp(2:nsx, :) = 0.5 * (u_hm_map(2:nsx, :) + u_hm_map(1:nsx-1, :))
-  u_hm_map = tmp
-
-  tmp(1,     :) = 0.5 * (v_hm_map(1,     :) + v_hm_map(nsx,     :))
-  tmp(2:nsx, :) = 0.5 * (v_hm_map(2:nsx, :) + v_hm_map(1:nsx-1, :))
-  v_hm_map = tmp
+  call face2center_U(u_hm_map_save, tmp1)
+  call center2face_U((u0_in-tmp1), tmp2)
+  u_hm_map = u_hm_map_save + tmp2
+  v_hm_map = 0.
 
   call output_host_model_single_variable(u_hm_map, 'U00', 'U_after_1st_interpolation' , 'm/s')
-  call output_host_model_single_variable(v_hm_map, 'V00', 'V_after_1st_interpolation' , 'm/s')
+  ! call output_host_model_single_variable(v_hm_map, 'V00', 'V_after_1st_interpolation' , 'm/s')
 
   dudt_hm = 0.0; dvdt_hm = 0.0; dwdt_hm = 0.0
 
@@ -141,21 +139,16 @@ subroutine host_model_evolve( &
   call advect_scalars_hm(t_hm_map, u1_hm_map, w1_hm_map)
   call advect_scalars_hm(q_hm_map, u1_hm_map, w1_hm_map)
 
-  u_hm_map_edge = u_hm_map
-  v_hm_map_edge = v_hm_map
-
-  ! interpolate back for u,v (due to Arakawa C-type grid)
-  tmp(1:nsx-1, :) = 0.5 * (u_hm_map(1:nsx-1, :) + u_hm_map(2:nsx, :))
-  tmp(nsx,     :) = 0.5 * (u_hm_map(nsx,     :) + u_hm_map(1,     :))
-  u_hm_map = tmp
-
-  tmp(1:nsx-1, :) = 0.5 * (v_hm_map(1:nsx-1, :) + v_hm_map(2:nsx, :))
-  tmp(nsx,     :) = 0.5 * (v_hm_map(nsx,     :) + v_hm_map(1,     :))
-  v_hm_map = tmp
+  u_hm_map_save = u_hm_map
+  t_out_map = t_hm_map
+  q_out_map = q_hm_map
+  call face2center_U(u_hm_map, u_out_map)
+  v_out_map = v_hm_map
+  w_out_map = w_hm_map
 
   call output_host_model(u0_in, v0_in, t0_in, q0_in,  &
-                          u_hm_map, v_hm_map, t_hm_map, q_hm_map, w_hm_map, u_hm_map_edge, v_hm_map_edge)
-
+                          u_out_map, v_out_map, t_out_map, q_out_map, w_out_map,&
+                          tabs0_in, qv0_in, qn0_in, qp0_in)
   ! call write_host_diag(u0_in, v0_in, t0_in, q0_in, &
   !                    u_hm_map, v_hm_map, t_hm_map, q_hm_map, w_hm_map, hm_step)
 
@@ -214,7 +207,7 @@ subroutine damping_hm(u_hm_map, v_hm_map, w_hm_map, dudt_hm, dvdt_hm, dwdt_hm)
     real tau_min	! minimum damping time-scale (at the top)
     real tau_max    ! maxim damping time-scale (base of damping layer)
     real damp_depth ! damping depth as a fraction of the domain height
-    parameter(tau_min=60., tau_max=1800., damp_depth=0.3)
+    parameter(tau_min=1800., tau_max=3600., damp_depth=0.3)
     real tau(nzm)   
     integer i, k, n_damp
 
@@ -801,17 +794,15 @@ end subroutine nudging_hm
 
      
 subroutine output_host_model(u0_in, v0_in, t0_in, q0_in,  &
-  u_hm_map, v_hm_map, t_hm_map, q_hm_map, w_hm_map, u_hm_map_edge, v_hm_map_edge)
+  u_out_map, v_out_map, t_out_map, q_out_map, w_out_map,  &
+  tabs0_in, qv0_in, qn0_in, qp0_in)         ! 输出形状是（nsx，nzm ）的变量
 	
     use vars
 
     implicit none
     real, intent(in) :: u0_in(nsx, nzm), v0_in(nsx, nzm), t0_in(nsx, nzm), q0_in(nsx, nzm)
-    real, intent(in)  :: u_hm_map(nsx, nzm), v_hm_map(nsx, nzm), t_hm_map(nsx, nzm), q_hm_map(nsx, nzm), w_hm_map(nsx, nz)
-    real, intent(in)  :: u_hm_map_edge(nsx, nzm), v_hm_map_edge(nsx, nzm)
-   
-
-
+    real, intent(in) :: u_out_map(nsx, nzm), v_out_map(nsx, nzm), t_out_map(nsx, nzm), q_out_map(nsx, nzm), w_out_map(nsx, nz)
+    real, intent(in) :: tabs0_in(nsx, nzm), qv0_in(nsx, nzm), qn0_in(nsx, nzm), qp0_in(nsx, nzm)
     character *120 filename
     character *80 long_name
     character *8 name
@@ -826,7 +817,7 @@ subroutine output_host_model(u0_in, v0_in, t0_in, q0_in,  &
     integer, external :: lenstr
 
 
-    nfields_hm=11 ! number of 3D fields to save
+    nfields_hm=13 ! number of 3D fields to save
     nfields1_hm=0
 
     sepchar=""
@@ -840,7 +831,7 @@ subroutine output_host_model(u0_in, v0_in, t0_in, q0_in,  &
     print*, 'Rank=', rank, '*************begin output_host_model***************'
 
     filetype = '.bin2D'
-    filename='./OUT_3D/host_model_output_all_v_6/'//trim(case)//'_'//trim(caseid)//&
+    filename='./OUT_3D/host_model_main_body/'//trim(case)//'_'//trim(caseid)//&
     filetype//sepchar
     if(nrestart.eq.0.and.notopened3D) then
         open(46,file=filename,status='unknown',form='unformatted')	
@@ -914,7 +905,51 @@ subroutine output_host_model(u0_in, v0_in, t0_in, q0_in,  &
     nfields1_hm=nfields1_hm+1
     do k=1,nzm
         do i=1,nsx
-            tmp(i,1,k)=u_hm_map(i,k)
+            tmp(i,1,k)=tabs0_in(i,k)
+        end do
+    end do
+    name='Tabs0_In'
+    long_name='Input Tabs For Host Model'
+    units='K'
+    call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
+
+    nfields1_hm=nfields1_hm+1
+    do k=1,nzm
+        do i=1,nsx
+            tmp(i,1,k)=qv0_in(i,k)
+        end do
+    end do
+    name='Qv0_In'
+    long_name='Input Qv0 For Host Model'
+    units='kg/kg'
+    call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
+    
+    nfields1_hm=nfields1_hm+1
+    do k=1,nzm
+        do i=1,nsx
+            tmp(i,1,k)=qn0_in(i,k)
+        end do
+    end do
+    name='Qn0_In'
+    long_name='Input Qn0 For Host Model'
+    units='kg/kg'
+    call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
+
+    nfields1_hm=nfields1_hm+1
+    do k=1,nzm
+        do i=1,nsx
+            tmp(i,1,k)=qp0_in(i,k)
+        end do
+    end do
+    name='Qp0_In'
+    long_name='Input Qp0 For Host Model'
+    units='kg/kg'
+    call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
+
+    nfields1_hm=nfields1_hm+1
+    do k=1,nzm
+        do i=1,nsx
+            tmp(i,1,k)=u_out_map(i,k)
         end do
     end do
     name='U0_Out'
@@ -925,7 +960,7 @@ subroutine output_host_model(u0_in, v0_in, t0_in, q0_in,  &
     nfields1_hm=nfields1_hm+1
     do k=1,nzm
         do i=1,nsx
-            tmp(i,1,k)=v_hm_map(i,k)
+            tmp(i,1,k)=v_out_map(i,k)
         end do
     end do
     name='V0_Out'
@@ -936,7 +971,7 @@ subroutine output_host_model(u0_in, v0_in, t0_in, q0_in,  &
     nfields1_hm=nfields1_hm+1
     do k=1,nzm
         do i=1,nsx
-            tmp(i,1,k)=t_hm_map(i,k)
+            tmp(i,1,k)=t_out_map(i,k)
         end do
     end do
     name='T0_Out'
@@ -947,7 +982,7 @@ subroutine output_host_model(u0_in, v0_in, t0_in, q0_in,  &
     nfields1_hm=nfields1_hm+1
     do k=1,nzm
         do i=1,nsx
-            tmp(i,1,k)=q_hm_map(i,k)
+            tmp(i,1,k)=q_out_map(i,k)
         end do
     end do
     name='Q0_Out'
@@ -958,7 +993,7 @@ subroutine output_host_model(u0_in, v0_in, t0_in, q0_in,  &
     nfields1_hm=nfields1_hm+1
     do k=1,nzm
         do i=1,nsx
-            tmp(i,1,k)=w_hm_map(i,k)
+            tmp(i,1,k)=w_out_map(i,k)
         end do
     end do
     name='W_SUB_OUT'
@@ -966,28 +1001,6 @@ subroutine output_host_model(u0_in, v0_in, t0_in, q0_in,  &
     units='m/s'
     call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
 
-    nfields1_hm=nfields1_hm+1
-    do k=1,nzm
-        do i=1,nsx
-            tmp(i,1,k)=u_hm_map_edge(i,k)
-        end do
-    end do
-    name='u_hm_map_edge'
-    long_name='X Wind at edge of subdomain For Host Model'
-    units='m/s'
-    call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
-
-   
-    nfields1_hm=nfields1_hm+1
-    do k=1,nzm
-        do i=1,nsx
-            tmp(i,1,k)=v_hm_map_edge(i,k)
-        end do
-    end do
-    name='v_hm_map_edge'
-    long_name='Y Wind at edge of subdomain For Host Model'
-    units='m/s'
-    call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
 
     if(nfields_hm.ne.nfields1_hm) then
         print*,'host model write_fields3D error: nfields_hm=',nfields_hm,'  nfields1_hm=',nfields1_hm
@@ -1039,7 +1052,7 @@ subroutine output_host_model_single_variable(u0_in, v_name,v_longname,v_unit)
     print*, 'Rank=', rank, '*************begin output_host_model***************'
 
     filetype = '.bin2D'
-    filename='./OUT_3D/host_model_output_all_v_6/'//trim(case)//'_'//trim(caseid)//&
+    filename='./OUT_3D/host_model_main_body/'//trim(case)//'_'//trim(caseid)//&
     '_'//trim(name)//filetype//sepchar
     if(nrestart.eq.0.and.notopened3D) then
         open(46,file=filename,status='unknown',form='unformatted')	
@@ -1180,7 +1193,22 @@ end subroutine compress3D_hm
 !   end do
 ! end subroutine write_field
 
+subroutine center2face_U(u_center_map, u_face_map)
+    use grid, only: nsx, nzm
+    implicit none
+    real, intent(in)   :: u_center_map(nsx,nzm)
+    real, intent(out)  :: u_face_map(nsx,nzm)
+    u_face_map(1,     :) = 0.5 * (u_center_map(1,     :) + u_center_map(nsx,     :))
+    u_face_map(2:nsx, :) = 0.5 * (u_center_map(2:nsx, :) + u_center_map(1:nsx-1, :))
+end subroutine center2face_U
 
-
+subroutine face2center_U(u_face_map, u_center_map)
+    use grid, only: nsx, nzm
+    implicit none
+    real, intent(in)   :: u_face_map(nsx,nzm)
+    real, intent(out)  :: u_center_map(nsx,nzm)
+    u_center_map(1:nsx-1, :) = 0.5 * (u_face_map(1:nsx-1, :) + u_face_map(2:nsx, :))
+    u_center_map(nsx,     :) = 0.5 * (u_face_map(nsx,     :) + u_face_map(1,     :))
+end subroutine face2center_U
 
 end module module_hostmodel

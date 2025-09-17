@@ -131,6 +131,14 @@ call t_stopf ('initialize')
 
 do while(nstep.lt.nstop.and.nelapse.gt.0) 
  
+     ! Host model
+     if(dompiensemble.or.dompimmf) dompi = .true.
+     if(dompimmf) then
+          if(mod(nstep, nstephostmodel).eq.0) then
+          call hm_couple_step()
+          end if
+     end if
+
   ! Kuang Ensemble run: turn off mpi entering each loop (Song Qiyu, 2022)
   if(dompiensemble.or.dompimmf) dompi = .false.
   
@@ -381,16 +389,16 @@ do while(nstep.lt.nstop.and.nelapse.gt.0)
       iperturb1=0
    end if
  
-   ! Kuang Ensemble run: turn on mpi after each loop (Song Qiyu, 2022)
-   if(dompiensemble.or.dompimmf) dompi = .true.
+!    ! Kuang Ensemble run: turn on mpi after each loop (Song Qiyu, 2022)
+!    if(dompiensemble.or.dompimmf) dompi = .true.
 
-   if(dompimmf) then
-      if(mod(nstep, nstephostmodel).eq.0) then
+!    if(dompimmf) then
+!       if(mod(nstep, nstephostmodel).eq.0) then
          
-         call hm_couple_step()
+!          call hm_couple_step()
 
-      end if
-   end if
+!       end if
+!    end if
   
 !----------------------------------------------------------
 
