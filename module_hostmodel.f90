@@ -27,6 +27,7 @@ subroutine host_model_init()
     ! t_hm_map_save = 0.
     ! q_hm_map_save = 0.
   end if
+sstxy(1:nx, 1:ny) = sum(sstxy(:,:))/(nx*ny)
 end subroutine host_model_init
 
 
