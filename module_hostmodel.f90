@@ -102,7 +102,7 @@ subroutine host_model_evolve( &
   ! 1-1) damping
   call damping_hm(u_hm_map, v_hm_map, w_hm_map, dudt_hm, dvdt_hm, dwdt_hm)
   call output_host_model_single_variable(dudt_hm, 'dudt_dam', 'dudt_after_damping' , 'm/s2')
-  call output_host_model_single_variable(dvdt_hm, 'dvdt_dam', 'dvdt_after_damping' , 'm/s2')
+  ! call output_host_model_single_variable(dvdt_hm, 'dvdt_dam', 'dvdt_after_damping' , 'm/s2')
   tmp(:, :) = dwdt_hm(:,1:nzm)
   call output_host_model_single_variable(tmp, 'dwdt_dam', 'dwdt_after_damping' , 'm/s2')
 
@@ -111,7 +111,7 @@ subroutine host_model_evolve( &
                      dudt_hm, dvdt_hm, dwdt_hm)
 
   call output_host_model_single_variable(dudt_hm, 'dudt2', 'dudt_after_advect_mom' , 'm/s2')
-  call output_host_model_single_variable(dvdt_hm, 'dvdt2', 'dvdt_after_advect_mom' , 'm/s2')
+  ! call output_host_model_single_variable(dvdt_hm, 'dvdt2', 'dvdt_after_advect_mom' , 'm/s2')
   tmp(:, :) = dwdt_hm(:,1:nzm)
   call output_host_model_single_variable(tmp, 'dwdt2', 'dwdt_after_advect_mom' , 'm/s2')
 
@@ -129,11 +129,11 @@ subroutine host_model_evolve( &
                   u1_hm_map, v1_hm_map, w1_hm_map)
 
   call output_host_model_single_variable(u_hm_map, 'U4', 'U_after_adams' , 'm/s')
-  call output_host_model_single_variable(v_hm_map, 'V4', 'V_after_adams' , 'm/s')
+  ! call output_host_model_single_variable(v_hm_map, 'V4', 'V_after_adams' , 'm/s')
   tmp(:, :) = w_hm_map(:,1:nzm)
   call output_host_model_single_variable(tmp, 'W4', 'W_after_adams' , 'm/s')
   call output_host_model_single_variable(u1_hm_map, 'U41', 'U1_after_adams' , 'm/s')
-  call output_host_model_single_variable(v1_hm_map, 'V41', 'V1_after_adams' , 'm/s')
+  ! call output_host_model_single_variable(v1_hm_map, 'V41', 'V1_after_adams' , 'm/s')
   tmp(:, :) = w1_hm_map(:,1:nzm)
   call output_host_model_single_variable(tmp, 'W41', 'W1_after_adams' , 'm/s')
   ! 5) 标量平流（上风，正定）
@@ -832,7 +832,7 @@ subroutine output_host_model(u0_in, v0_in, t0_in, q0_in,  &
     print*, 'Rank=', rank, '*************begin output_host_model***************'
 
     filetype = '.bin2D'
-    filename='./OUT_3D/host_model_main_body/'//trim(case)//'_'//trim(caseid)//&
+    filename='./OUT_3D/300day_high_freq/'//trim(case)//'_'//trim(caseid)//&
     filetype//sepchar
     if(nrestart.eq.0.and.notopened3D) then
         open(46,file=filename,status='unknown',form='unformatted')	
@@ -1053,7 +1053,7 @@ subroutine output_host_model_single_variable(u0_in, v_name,v_longname,v_unit)
     print*, 'Rank=', rank, '*************begin output_host_model***************'
 
     filetype = '.bin2D'
-    filename='./OUT_3D/host_model_main_body/'//trim(case)//'_'//trim(caseid)//&
+    filename='./OUT_3D/300day_high_freq/'//trim(case)//'_'//trim(caseid)//&
     '_'//trim(name)//filetype//sepchar
     if(nrestart.eq.0.and.notopened3D) then
         open(46,file=filename,status='unknown',form='unformatted')	
