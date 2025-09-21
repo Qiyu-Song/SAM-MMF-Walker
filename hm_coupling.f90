@@ -41,6 +41,8 @@ subroutine hm_couple_step()
         allocate(dummy2d(nsx, nzm))  ! assign dummy to avoid alloc error
     end if
 
+    call t_startf ('host_model')
+
     do k = 1, nzm
     !     u0_local_hm(k) = sum( u(1:nx,1:ny,k) ) / real(nx*ny)   !! nx是每个subdomain里的x格点数
     !     v0_local_hm(k) = sum( v(1:nx,1:ny,k) ) / real(nx*ny)
@@ -295,5 +297,7 @@ subroutine hm_couple_step()
     else
         if (allocated(dummy2d))  deallocate(dummy2d)
     end if
+
+    call t_stopf('host_model')
 
 end subroutine hm_couple_step

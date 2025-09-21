@@ -22,10 +22,11 @@ subroutine host_model_init()
     wsub_inited = .true.
     hm_step = 0
     u_hm_map_save = 0.
-    ! v_hm_map_save = 0.
-    ! w_hm_map_save = 0.
-    ! t_hm_map_save = 0.
-    ! q_hm_map_save = 0.
+    u_sub_map_save = 0.
+    t_hm_map_save = 0.
+    t_sub_map_save = 0.
+    q_hm_map_save = 0.
+    q_sub_map_save = 0.
   end if
 sstxy(1:nx, 1:ny) = sum(sstxy(:,:))/(nx*ny)
 end subroutine host_model_init
@@ -69,21 +70,34 @@ subroutine host_model_evolve( &
   ! for advection of scalars
   real :: u1_hm_map(nsx, nzm), v1_hm_map(nsx, nzm), w1_hm_map(nsx, nz)
   real :: p_phys(nsx, nzm)    ! 压力势（诊断用，可不输出）
-  real :: tmp(nsx, nzm), tmp1(nsx, nzm), tmp2(nsx, nzm)
+  real :: tmp(nsx, nzm), tmp1(nsx, nzm)
   real :: u_hm_map(nsx, nzm), v_hm_map(nsx, nzm), w_hm_map(nsx, nz), t_hm_map(nsx, nzm), q_hm_map(nsx, nzm)
+  real :: u_start_map(nsx, nzm), t_start_map(nsx, nzm), q_start_map(nsx, nzm)
 
   ! 拷贝初值
   ! u_hm_map = u0_in
   ! v_hm_map = v0_in
   w_hm_map = wsub_in
-  t_hm_map = t0_in
-  q_hm_map = q0_in
+  
 
-  call face2center_U(u_hm_map_save, tmp1)
-  call center2face_U((u0_in-tmp1), tmp2)
-  u_hm_map = u_hm_map_save + tmp2
+  call center2face_U((u0_in-u_sub_map_save), tmp1)
+  u_hm_map = u_hm_map_save + tmp1
   v_hm_map = 0.
+  u_sub_map_save = u0_in
 
+  t_hm_map = t_hm_map_save + t0_in - t_sub_map_save
+  t_sub_map_save = t0_in
+
+  q_hm_map = q_hm_map_save + q0_in - q_sub_map_save
+  q_sub_map_save = q0_in
+
+  u_start_map = u_hm_map
+  t_start_map = t_hm_map
+  q_start_map = q_hm_map
+  u_hm_map_save = u_start_map
+  t_hm_map_save = t_start_map
+  q_hm_map_save = q_start_map
+  
   call output_host_model_single_variable(u_hm_map, 'U00', 'U_after_1st_interpolation' , 'm/s')
   ! call output_host_model_single_variable(v_hm_map, 'V00', 'V_after_1st_interpolation' , 'm/s')
 
@@ -140,12 +154,13 @@ subroutine host_model_evolve( &
   call advect_scalars_hm(t_hm_map, u1_hm_map, w1_hm_map)
   call advect_scalars_hm(q_hm_map, u1_hm_map, w1_hm_map)
 
-  u_hm_map_save = u_hm_map
-  t_out_map = t_hm_map
-  q_out_map = q_hm_map
-  call face2center_U(u_hm_map, u_out_map)
+  
+  t_out_map = t_hm_map - t_start_map
+  q_out_map = q_hm_map - q_start_map
+  call face2center_U((u_hm_map-u_start_map), u_out_map)
   v_out_map = v_hm_map
   w_out_map = w_hm_map
+  
 
   call output_host_model(u0_in, v0_in, t0_in, q0_in,  &
                           u_out_map, v_out_map, t_out_map, q_out_map, w_out_map,&
@@ -734,7 +749,7 @@ implicit none
 real coef, coef1
 integer i,j,k
 	
-call t_startf ('nudging_hm')
+! call t_startf ('nudging_hm')
 
 tnudge = 0.
 qnudge = 0.
@@ -746,12 +761,12 @@ coef = 1./dt_hm
 if(donudging_uv) then
     do k=1,nzm
       if(z(k).ge.nudging_uv_z1.and.z(k).le.nudging_uv_z2) then
-        unudge(k)=unudge(k) - (u0_local_hm(k)-ug0_hm(k))*coef
-        vnudge(k)=vnudge(k) - (v0_local_hm(k)-vg0_hm(k))*coef
+        unudge(k)=unudge(k) - (-ug0_hm(k))*coef
+        vnudge(k)=vnudge(k) - (-vg0_hm(k))*coef
         do j=1,ny
           do i=1,nx
-             dudt(i,j,k,na)=dudt(i,j,k,na)-(u0_local_hm(k)-ug0_hm(k))*coef
-             dvdt(i,j,k,na)=dvdt(i,j,k,na)-(v0_local_hm(k)-vg0_hm(k))*coef
+             dudt(i,j,k,na)=dudt(i,j,k,na)-(-ug0_hm(k))*coef
+             dvdt(i,j,k,na)=dvdt(i,j,k,na)-(-vg0_hm(k))*coef
           end do
         end do
       end if
@@ -763,10 +778,10 @@ if(donudging_tq.or.donudging_t) then
     coef1 = dtn / dt_hm
     do k=1,nzm
       if(z(k).ge.nudging_t_z1.and.z(k).le.nudging_t_z2) then
-        tnudge(k)=tnudge(k) -(t0_local_hm(k)-tg0_hm(k))*coef
+        tnudge(k)=tnudge(k) -(-tg0_hm(k))*coef
         do j=1,ny
           do i=1,nx
-             t(i,j,k)=t(i,j,k)-(t0_local_hm(k)-tg0_hm(k))*coef1
+             t(i,j,k)=t(i,j,k)-(-tg0_hm(k))*coef1
           end do
         end do
       end if
@@ -777,17 +792,17 @@ if(donudging_tq.or.donudging_q) then
     coef1 = dtn / dt_hm
     do k=1,nzm
       if(z(k).ge.nudging_q_z1.and.z(k).le.nudging_q_z2) then
-        qnudge(k)=qnudge(k) -(q0_local_hm(k)-qg0_hm(k))*coef
+        qnudge(k)=qnudge(k) -(-qg0_hm(k))*coef
         do j=1,ny
           do i=1,nx
-             micro_field(i,j,k,index_water_vapor)=micro_field(i,j,k,index_water_vapor)-(q0_local_hm(k)-qg0_hm(k))*coef1
+             micro_field(i,j,k,index_water_vapor)=micro_field(i,j,k,index_water_vapor)-(-qg0_hm(k))*coef1
           end do
         end do
       end if
     end do
 endif
 
-call t_stopf('nudging_hm')
+! call t_stopf('nudging_hm')
 
 end subroutine nudging_hm
 
@@ -832,7 +847,7 @@ subroutine output_host_model(u0_in, v0_in, t0_in, q0_in,  &
     print*, 'Rank=', rank, '*************begin output_host_model***************'
 
     filetype = '.bin2D'
-    filename='./OUT_3D/300day_high_freq/'//trim(case)//'_'//trim(caseid)//&
+    filename='./OUT_3D/tendency_forcing/'//trim(case)//'_'//trim(caseid)//&
     filetype//sepchar
     if(nrestart.eq.0.and.notopened3D) then
         open(46,file=filename,status='unknown',form='unformatted')	
@@ -1053,7 +1068,7 @@ subroutine output_host_model_single_variable(u0_in, v_name,v_longname,v_unit)
     print*, 'Rank=', rank, '*************begin output_host_model***************'
 
     filetype = '.bin2D'
-    filename='./OUT_3D/300day_high_freq/'//trim(case)//'_'//trim(caseid)//&
+    filename='./OUT_3D/tendency_forcing/'//trim(case)//'_'//trim(caseid)//&
     '_'//trim(name)//filetype//sepchar
     if(nrestart.eq.0.and.notopened3D) then
         open(46,file=filename,status='unknown',form='unformatted')	
