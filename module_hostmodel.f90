@@ -79,9 +79,7 @@ subroutine host_model_evolve( &
   t_hm_map = t0_in
   q_hm_map = q0_in
 
-  call face2center_U(u_hm_map_save, tmp1)
-  call center2face_U((u0_in-tmp1), tmp2)
-  u_hm_map = u_hm_map_save + tmp2
+  u_hm_map = u_hm_map_save 
   v_hm_map = 0.
 
   call output_host_model_single_variable(u_hm_map, 'U00', 'U_after_1st_interpolation' , 'm/s')
@@ -746,12 +744,12 @@ coef = 1./dt_hm
 if(donudging_uv) then
     do k=1,nzm
       if(z(k).ge.nudging_uv_z1.and.z(k).le.nudging_uv_z2) then
-        unudge(k)=unudge(k) - (u0_local_hm(k)-ug0_hm(k))*coef
-        vnudge(k)=vnudge(k) - (v0_local_hm(k)-vg0_hm(k))*coef
+        unudge(k)=unudge(k) - (u0(k)-ug0(k))*coef
+        vnudge(k)=vnudge(k) - (v0(k)-vg0(k))*coef
         do j=1,ny
           do i=1,nx
-             dudt(i,j,k,na)=dudt(i,j,k,na)-(u0_local_hm(k)-ug0_hm(k))*coef
-             dvdt(i,j,k,na)=dvdt(i,j,k,na)-(v0_local_hm(k)-vg0_hm(k))*coef
+             dudt(i,j,k,na)=dudt(i,j,k,na)-(u0(k)-ug0(k))*coef
+             dvdt(i,j,k,na)=dvdt(i,j,k,na)-(v0(k)-vg0(k))*coef
           end do
         end do
       end if
@@ -832,7 +830,7 @@ subroutine output_host_model(u0_in, v0_in, t0_in, q0_in,  &
     print*, 'Rank=', rank, '*************begin output_host_model***************'
 
     filetype = '.bin2D'
-    filename='./OUT_3D/300day_high_freq/'//trim(case)//'_'//trim(caseid)//&
+    filename='./OUT_3D/no_uv/'//trim(case)//'_'//trim(caseid)//&
     filetype//sepchar
     if(nrestart.eq.0.and.notopened3D) then
         open(46,file=filename,status='unknown',form='unformatted')	
@@ -1053,7 +1051,7 @@ subroutine output_host_model_single_variable(u0_in, v_name,v_longname,v_unit)
     print*, 'Rank=', rank, '*************begin output_host_model***************'
 
     filetype = '.bin2D'
-    filename='./OUT_3D/300day_high_freq/'//trim(case)//'_'//trim(caseid)//&
+    filename='./OUT_3D/no_uv/'//trim(case)//'_'//trim(caseid)//&
     '_'//trim(name)//filetype//sepchar
     if(nrestart.eq.0.and.notopened3D) then
         open(46,file=filename,status='unknown',form='unformatted')	
