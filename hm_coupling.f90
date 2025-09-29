@@ -28,6 +28,8 @@ subroutine hm_couple_step()
 
     real, allocatable :: tabs0_map(:,:), qv0_map(:,:), qn0_map(:,:), qp0_map(:,:)
 
+    call t_startf ('host_model')
+
     if (masterproc) then
         allocate(u0_map(nsx, nzm), v0_map(nsx, nzm),  &
                 t0_map(nsx, nzm), q0_map(nsx, nzm),  &
@@ -296,4 +298,5 @@ subroutine hm_couple_step()
         if (allocated(dummy2d))  deallocate(dummy2d)
     end if
 
+call t_stopf('host_model')
 end subroutine hm_couple_step

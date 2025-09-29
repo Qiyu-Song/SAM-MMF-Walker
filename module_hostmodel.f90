@@ -69,23 +69,26 @@ subroutine host_model_evolve( &
   ! for advection of scalars
   real :: u1_hm_map(nsx, nzm), v1_hm_map(nsx, nzm), w1_hm_map(nsx, nz)
   real :: p_phys(nsx, nzm)    ! 压力势（诊断用，可不输出）
-  real :: tmp(nsx, nzm), tmp1(nsx, nzm), tmp2(nsx, nzm)
+  real :: tmp(nsx, nzm), tmp1(nsx, nzm), delta_u_hm_map(nsx, nzm), delta_w_hm_map(nsx, nz)
   real :: u_hm_map(nsx, nzm), v_hm_map(nsx, nzm), w_hm_map(nsx, nz), t_hm_map(nsx, nzm), q_hm_map(nsx, nzm)
 
-  ! 拷贝初值
-  ! u_hm_map = u0_in
-  ! v_hm_map = v0_in
-  w_hm_map = wsub_in
+ 
+  ! w_hm_map = wsub_in
   t_hm_map = t0_in
   q_hm_map = q0_in
 
   call face2center_U(u_hm_map_save, tmp1)
-  call center2face_U((u0_in-tmp1), tmp2)
-  u_hm_map = u_hm_map_save + tmp2
+  call center2face_U((u0_in-tmp1), delta_u_hm_map)
+  u_hm_map = u_hm_map_save + delta_u_hm_map
   v_hm_map = 0.
 
+  call solve_w_from_u(delta_u_hm_map, delta_w_hm_map)
+  w_hm_map = wsub_in + delta_w_hm_map
+
   call output_host_model_single_variable(u_hm_map, 'U00', 'U_after_1st_interpolation' , 'm/s')
-  ! call output_host_model_single_variable(v_hm_map, 'V00', 'V_after_1st_interpolation' , 'm/s')
+  call output_host_model_single_variable(delta_u_hm_map, 'res_U', 'delta_u_hm_map' , 'm/s')
+  tmp(:, :) = delta_w_hm_map(:,1:nzm)
+  call output_host_model_single_variable(tmp, 'res_W', 'delta_w_hm_map' , 'm/s')
 
   dudt_hm = 0.0; dvdt_hm = 0.0; dwdt_hm = 0.0
 
@@ -734,7 +737,7 @@ implicit none
 real coef, coef1
 integer i,j,k
 	
-call t_startf ('nudging_hm')
+! call t_startf ('nudging_hm')
 
 tnudge = 0.
 qnudge = 0.
@@ -787,7 +790,7 @@ if(donudging_tq.or.donudging_q) then
     end do
 endif
 
-call t_stopf('nudging_hm')
+! call t_stopf('nudging_hm')
 
 end subroutine nudging_hm
 
@@ -832,7 +835,7 @@ subroutine output_host_model(u0_in, v0_in, t0_in, q0_in,  &
     print*, 'Rank=', rank, '*************begin output_host_model***************'
 
     filetype = '.bin2D'
-    filename='./OUT_3D/300day_high_freq/'//trim(case)//'_'//trim(caseid)//&
+    filename='./OUT_3D/continuity/'//trim(case)//'_'//trim(caseid)//&
     filetype//sepchar
     if(nrestart.eq.0.and.notopened3D) then
         open(46,file=filename,status='unknown',form='unformatted')	
@@ -1053,7 +1056,7 @@ subroutine output_host_model_single_variable(u0_in, v_name,v_longname,v_unit)
     print*, 'Rank=', rank, '*************begin output_host_model***************'
 
     filetype = '.bin2D'
-    filename='./OUT_3D/300day_high_freq/'//trim(case)//'_'//trim(caseid)//&
+    filename='./OUT_3D/continuity/'//trim(case)//'_'//trim(caseid)//&
     '_'//trim(name)//filetype//sepchar
     if(nrestart.eq.0.and.notopened3D) then
         open(46,file=filename,status='unknown',form='unformatted')	
@@ -1211,5 +1214,23 @@ subroutine face2center_U(u_face_map, u_center_map)
     u_center_map(1:nsx-1, :) = 0.5 * (u_face_map(1:nsx-1, :) + u_face_map(2:nsx, :))
     u_center_map(nsx,     :) = 0.5 * (u_face_map(nsx,     :) + u_face_map(1,     :))
 end subroutine face2center_U
+
+subroutine solve_w_from_u(delta_u_hm_map, delta_w_hm_map)
+  use vars
+  implicit none
+  real, intent(in) :: delta_u_hm_map(nsx, nzm)
+  real, intent(out) :: delta_w_hm_map(nsx, nz)
+  integer :: i, k, ic
+
+  delta_w_hm_map = 0.0
+  do k = 1, nzm
+    do i = 1, nsx
+        ic = i + 1
+        if (ic > nsx) ic = ic - nsx
+        delta_w_hm_map(i,k+1) = ((delta_u_hm_map(i,k)-delta_u_hm_map(ic,k))*rho(k)*adz(k)*dz + delta_w_hm_map(i,k)*rhow(k)*dx_hm) &
+                                /(rhow(k+1)*dx_hm)
+    end do
+  end do
+end subroutine solve_w_from_u
 
 end module module_hostmodel
