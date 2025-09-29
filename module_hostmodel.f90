@@ -12,6 +12,7 @@ contains
 subroutine host_model_init()
   use vars
   implicit none
+  integer i
 
   if (.not. allocated(wsub_map)) then
     allocate(wsub_map(nsx, nz))
@@ -23,10 +24,13 @@ subroutine host_model_init()
     hm_step = 0
     u_hm_map_save = 0.
     u_sub_map_save = 0.
-    t_hm_map_save = 0.
-    t_sub_map_save = 0.
-    q_hm_map_save = 0.
-    q_sub_map_save = 0.
+    u_hm_updated_map_save = 0.
+    do i = 1, nsx
+      t_hm_map_save(i,:) = t0(:)
+      t_sub_map_save(i,:) = t0(:)
+      q_hm_map_save(i,:) = qv0(:)
+      q_sub_map_save(i,:) = qv0(:)
+    end do
   end if
 sstxy(1:nx, 1:ny) = sum(sstxy(:,:))/(nx*ny)
 end subroutine host_model_init
@@ -70,7 +74,7 @@ subroutine host_model_evolve( &
   ! for advection of scalars
   real :: u1_hm_map(nsx, nzm), v1_hm_map(nsx, nzm), w1_hm_map(nsx, nz)
   real :: p_phys(nsx, nzm)    ! 压力势（诊断用，可不输出）
-  real :: tmp(nsx, nzm), tmp1(nsx, nzm)
+  real :: tmp(nsx, nzm), tmp1(nsx, nzm), tmp2(nsx, nzm)
   real :: u_hm_map(nsx, nzm), v_hm_map(nsx, nzm), w_hm_map(nsx, nz), t_hm_map(nsx, nzm), q_hm_map(nsx, nzm)
   real :: u_start_map(nsx, nzm), t_start_map(nsx, nzm), q_start_map(nsx, nzm)
 
@@ -79,9 +83,14 @@ subroutine host_model_evolve( &
   ! v_hm_map = v0_in
   w_hm_map = wsub_in
   
+  call face2center_U((u_hm_updated_map_save-u_hm_map_save),tmp1)
 
-  call center2face_U((u0_in-u_sub_map_save), tmp1)
-  u_hm_map = u_hm_map_save + tmp1
+  call output_host_model_single_variable(u_hm_updated_map_save-u_hm_map_save, 'deltaU', 'u_hm_updated-u_hm' , 'm/s')
+
+  call center2face_U((u0_in-u_sub_map_save-tmp1), tmp2)
+
+  call output_host_model_single_variable(tmp2, 'delta2U', 'modification_to_Uhm' , 'm/s')
+  u_hm_map = u_hm_updated_map_save + tmp2
   v_hm_map = 0.
   u_sub_map_save = u0_in
 
@@ -154,7 +163,8 @@ subroutine host_model_evolve( &
   call advect_scalars_hm(t_hm_map, u1_hm_map, w1_hm_map)
   call advect_scalars_hm(q_hm_map, u1_hm_map, w1_hm_map)
 
-  
+  u_hm_updated_map_save = u_hm_map
+
   t_out_map = t_hm_map - t_start_map
   q_out_map = q_hm_map - q_start_map
   call face2center_U((u_hm_map-u_start_map), u_out_map)
@@ -847,7 +857,7 @@ subroutine output_host_model(u0_in, v0_in, t0_in, q0_in,  &
     print*, 'Rank=', rank, '*************begin output_host_model***************'
 
     filetype = '.bin2D'
-    filename='./OUT_3D/tendency_forcing/'//trim(case)//'_'//trim(caseid)//&
+    filename='./OUT_3D/tend_nudging2/'//trim(case)//'_'//trim(caseid)//&
     filetype//sepchar
     if(nrestart.eq.0.and.notopened3D) then
         open(46,file=filename,status='unknown',form='unformatted')	
@@ -1068,7 +1078,7 @@ subroutine output_host_model_single_variable(u0_in, v_name,v_longname,v_unit)
     print*, 'Rank=', rank, '*************begin output_host_model***************'
 
     filetype = '.bin2D'
-    filename='./OUT_3D/tendency_forcing/'//trim(case)//'_'//trim(caseid)//&
+    filename='./OUT_3D/tend_nudging2/'//trim(case)//'_'//trim(caseid)//&
     '_'//trim(name)//filetype//sepchar
     if(nrestart.eq.0.and.notopened3D) then
         open(46,file=filename,status='unknown',form='unformatted')	

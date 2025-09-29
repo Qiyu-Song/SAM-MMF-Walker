@@ -248,6 +248,7 @@ real tg0_hm(nzm)
 real qg0_hm(nzm)
 
 real u_hm_map_save(nsx, nzm)
+real u_hm_updated_map_save(nsx, nzm)
 real u_sub_map_save(nsx, nzm)
 real t_hm_map_save(nsx, nzm)
 real t_sub_map_save(nsx, nzm)
