@@ -248,9 +248,8 @@ real tg0_hm(nzm)
 real qg0_hm(nzm)
 
 real u_hm_map_save(nsx, nzm)
-! real v_hm_map_save(nsx, nzm)
-! real w_hm_map_save(nsx, nz)
-! real t_hm_map_save(nsx, nzm)
-! real q_hm_map_save(nsx, nzm)
+real t_hm_map_save(nsx, nzm)
+real q_hm_map_save(nsx, nzm)
+
 
 end module vars

@@ -12,6 +12,8 @@ contains
 subroutine host_model_init()
   use vars
   implicit none
+  integer i,k
+  real distance,perturbation
 
   if (.not. allocated(wsub_map)) then
     allocate(wsub_map(nsx, nz))
@@ -21,12 +23,23 @@ subroutine host_model_init()
     wsub_map = 0.0     ! 设定初值
     wsub_inited = .true.
     hm_step = 0
-    u_hm_map_save = 0.
-    ! v_hm_map_save = 0.
-    ! w_hm_map_save = 0.
-    ! t_hm_map_save = 0.
-    ! q_hm_map_save = 0.
+    
+    do i = 1, nsx
+      u_hm_map_save(i,:) = u0(:)
+      t_hm_map_save(i,:) = t0(:)
+      q_hm_map_save(i,:) = qv0(:)
+    end do
   end if
+    
+    do k = 1, 3  
+        do i = 36, 45
+          ! 计算到中心的距离
+          distance = sqrt((real(i) - (1.0+real(nsx))/2.0)**2 )
+          perturbation = 0.00025 *(cos(2*distance * 3.14159 / real(nsx))) * ((4-k)**2)
+          t_hm_map_save(i,k) = t_hm_map_save(i,k) + perturbation
+        end do
+    end do
+
 sstxy(1:nx, 1:ny) = sum(sstxy(:,:))/(nx*ny)
 end subroutine host_model_init
 
@@ -73,22 +86,13 @@ subroutine host_model_evolve( &
   real :: u_hm_map(nsx, nzm), v_hm_map(nsx, nzm), w_hm_map(nsx, nz), t_hm_map(nsx, nzm), q_hm_map(nsx, nzm)
 
  
-  ! w_hm_map = wsub_in
-  t_hm_map = t0_in
-  q_hm_map = q0_in
+  w_hm_map = wsub_in
+  t_hm_map = t_hm_map_save
+  q_hm_map = q_hm_map_save
+  u_hm_map = u_hm_map_save
 
-  call face2center_U(u_hm_map_save, tmp1)
-  call center2face_U((u0_in-tmp1), delta_u_hm_map)
-  u_hm_map = u_hm_map_save + delta_u_hm_map
+ 
   v_hm_map = 0.
-
-  call solve_w_from_u(delta_u_hm_map, delta_w_hm_map)
-  w_hm_map = wsub_in + delta_w_hm_map
-
-  call output_host_model_single_variable(u_hm_map, 'U00', 'U_after_1st_interpolation' , 'm/s')
-  call output_host_model_single_variable(delta_u_hm_map, 'res_U', 'delta_u_hm_map' , 'm/s')
-  tmp(:, :) = delta_w_hm_map(:,1:nzm)
-  call output_host_model_single_variable(tmp, 'res_W', 'delta_w_hm_map' , 'm/s')
 
   dudt_hm = 0.0; dvdt_hm = 0.0; dwdt_hm = 0.0
 
@@ -144,11 +148,13 @@ subroutine host_model_evolve( &
   call advect_scalars_hm(q_hm_map, u1_hm_map, w1_hm_map)
 
   u_hm_map_save = u_hm_map
-  t_out_map = t_hm_map
-  q_out_map = q_hm_map
+  t_hm_map_save = t_hm_map
+  q_hm_map_save = q_hm_map
   call face2center_U(u_hm_map, u_out_map)
   v_out_map = v_hm_map
   w_out_map = w_hm_map
+  t_out_map = t_hm_map
+  q_out_map = q_hm_map
 
   call output_host_model(u0_in, v0_in, t0_in, q0_in,  &
                           u_out_map, v_out_map, t_out_map, q_out_map, w_out_map,&
@@ -835,7 +841,7 @@ subroutine output_host_model(u0_in, v0_in, t0_in, q0_in,  &
     print*, 'Rank=', rank, '*************begin output_host_model***************'
 
     filetype = '.bin2D'
-    filename='./OUT_3D/continuity/'//trim(case)//'_'//trim(caseid)//&
+    filename='./OUT_3D/no_subdomain_only_hm/'//trim(case)//'_'//trim(caseid)//&
     filetype//sepchar
     if(nrestart.eq.0.and.notopened3D) then
         open(46,file=filename,status='unknown',form='unformatted')	
@@ -1056,7 +1062,7 @@ subroutine output_host_model_single_variable(u0_in, v_name,v_longname,v_unit)
     print*, 'Rank=', rank, '*************begin output_host_model***************'
 
     filetype = '.bin2D'
-    filename='./OUT_3D/continuity/'//trim(case)//'_'//trim(caseid)//&
+    filename='./OUT_3D/no_subdomain_only_hm/'//trim(case)//'_'//trim(caseid)//&
     '_'//trim(name)//filetype//sepchar
     if(nrestart.eq.0.and.notopened3D) then
         open(46,file=filename,status='unknown',form='unformatted')	
