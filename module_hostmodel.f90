@@ -79,18 +79,20 @@ subroutine host_model_evolve( &
 
   call face2center_U(u_hm_map_save, tmp1)
   call center2face_U((u0_in-tmp1), delta_u_hm_map)
-  u_hm_map = u_hm_map_save + delta_u_hm_map
+  ! u_hm_map = u_hm_map_save + delta_u_hm_map
+  u_hm_map = u_hm_map_save
   v_hm_map = 0.
 
-  call solve_w_from_u(delta_u_hm_map, delta_w_hm_map)
-  w_hm_map = wsub_in + delta_w_hm_map
+  ! call solve_w_from_u(delta_u_hm_map, delta_w_hm_map)
+  ! w_hm_map = wsub_in + delta_w_hm_map
+  w_hm_map = wsub_in
 
   call output_host_model_single_variable(u_hm_map, 'U00', 'U_after_1st_interpolation' , 'm/s')
   call output_host_model_single_variable(delta_u_hm_map, 'res_U', 'delta_u_hm_map' , 'm/s')
-  tmp(:, :) = delta_w_hm_map(:,1:nzm)
-  call output_host_model_single_variable(tmp, 'res_W', 'delta_w_hm_map' , 'm/s')
+  ! tmp(:, :) = delta_w_hm_map(:,1:nzm)
+  ! call output_host_model_single_variable(tmp, 'res_W', 'delta_w_hm_map' , 'm/s')
 
-  dudt_hm = 0.0; dvdt_hm = 0.0; dwdt_hm = 0.0
+  dudt_hm = delta_u_hm_map/dt_hm; dvdt_hm = 0.0; dwdt_hm = 0.0
 
   ! 1) 浮力
   call buoyancy_hm(tabs0_in, qv0_in, qn0_in, qp0_in, dwdt_hm)
@@ -835,7 +837,7 @@ subroutine output_host_model(u0_in, v0_in, t0_in, q0_in,  &
     print*, 'Rank=', rank, '*************begin output_host_model***************'
 
     filetype = '.bin2D'
-    filename='./OUT_3D/continuity/'//trim(case)//'_'//trim(caseid)//&
+    filename='./OUT_3D/continuity_resid_tend/'//trim(case)//'_'//trim(caseid)//&
     filetype//sepchar
     if(nrestart.eq.0.and.notopened3D) then
         open(46,file=filename,status='unknown',form='unformatted')	
