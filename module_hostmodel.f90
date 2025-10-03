@@ -31,14 +31,14 @@ subroutine host_model_init()
     end do
   end if
     
-    do k = 1, 3  
-        do i = 36, 45
-          ! 计算到中心的距离
-          distance = sqrt((real(i) - (1.0+real(nsx))/2.0)**2 )
-          perturbation = 0.00025 *(cos(2*distance * 3.14159 / real(nsx))) * ((4-k)**2)
-          t_hm_map_save(i,k) = t_hm_map_save(i,k) + perturbation
-        end do
-    end do
+    ! do k = 1, 3  
+    !     do i = 36, 45
+    !       ! 计算到中心的距离
+    !       distance = sqrt((real(i) - (1.0+real(nsx))/2.0)**2 )
+    !       perturbation = 0.00025 *(cos(2*distance * 3.14159 / real(nsx))) * ((4-k)**2)
+    !       t_hm_map_save(i,k) = t_hm_map_save(i,k) + perturbation
+    !     end do
+    ! end do
 
 sstxy(1:nx, 1:ny) = sum(sstxy(:,:))/(nx*ny)
 end subroutine host_model_init
@@ -53,14 +53,13 @@ end subroutine host_model_finalize
 
 
 subroutine host_model_evolve( &
-  u0_in, v0_in, wsub_in, t0_in, q0_in,  &
+  u0_in, wsub_in, t0_in, q0_in,  &
   tabs0_in, qv0_in, qn0_in, qp0_in, &
-  u_out_map, v_out_map, w_out_map, t_out_map, q_out_map)
+  u_out_map, w_out_map, t_out_map, q_out_map)
   use vars
   implicit none
   ! -------- 输入（不含 ghost） --------
   real, intent(in) :: u0_in(nsx, nzm)
-  real, intent(in) :: v0_in(nsx, nzm)
   real, intent(in) :: wsub_in(nsx, nz)
   real, intent(in) :: t0_in(nsx, nzm)
   real, intent(in) :: q0_in(nsx, nzm)
@@ -72,18 +71,17 @@ subroutine host_model_evolve( &
 
   ! -------- 输出（不含 ghost） --------
   real, intent(out) :: u_out_map(nsx, nzm)
-  real, intent(out) :: v_out_map(nsx, nzm)
   real, intent(out) :: w_out_map(nsx, nz)
   real, intent(out) :: t_out_map(nsx, nzm)
   real, intent(out) :: q_out_map(nsx, nzm)
 
   ! -------- 局部 --------
-  real :: dudt_hm(nsx, nzm), dvdt_hm(nsx, nzm), dwdt_hm(nsx, nz)
+  real :: dudt_hm(nsx, nzm), dwdt_hm(nsx, nz)
   ! for advection of scalars
-  real :: u1_hm_map(nsx, nzm), v1_hm_map(nsx, nzm), w1_hm_map(nsx, nz)
+  real :: u1_hm_map(nsx, nzm), w1_hm_map(nsx, nz)
   real :: p_phys(nsx, nzm)    ! 压力势（诊断用，可不输出）
   real :: tmp(nsx, nzm), tmp1(nsx, nzm), delta_u_hm_map(nsx, nzm), delta_w_hm_map(nsx, nz)
-  real :: u_hm_map(nsx, nzm), v_hm_map(nsx, nzm), w_hm_map(nsx, nz), t_hm_map(nsx, nzm), q_hm_map(nsx, nzm)
+  real :: u_hm_map(nsx, nzm), w_hm_map(nsx, nz), t_hm_map(nsx, nzm), q_hm_map(nsx, nzm)
 
  
   w_hm_map = wsub_in
@@ -91,34 +89,36 @@ subroutine host_model_evolve( &
   q_hm_map = q_hm_map_save
   u_hm_map = u_hm_map_save
 
- 
-  v_hm_map = 0.
-
-  dudt_hm = 0.0; dvdt_hm = 0.0; dwdt_hm = 0.0
+  if (hm_step.le.20) then
+    call hot_bubble(hm_step, t_hm_map)
+  end if
+  call output_host_model_single_variable(t_hm_map, 't1', 't_after_bubble' , 'K')
+  dudt_hm = 0.0; dwdt_hm = 0.0
 
   ! 1) 浮力
-  call buoyancy_hm(tabs0_in, qv0_in, qn0_in, qp0_in, dwdt_hm)
+  ! call buoyancy_hm(tabs0_in, qv0_in, qn0_in, qp0_in, dwdt_hm)
+  call buoyancy_only_in_hm(t_hm_map, q_hm_map, dwdt_hm)
 
   tmp(:, :) = dwdt_hm(:,1:nzm)
   call output_host_model_single_variable(tmp, 'dwdt1', 'dwdt_after_buoyancy' , 'm/s2')
-  call output_host_model_single_variable(qv0_in, 'qv0in1', 'qv0_in_for_buoyancy' , 'kg/kg')
-  call output_host_model_single_variable(qp0_in, 'qp0in1', 'qp0_in_for_buoyancy' , 'kg/kg')
-  call output_host_model_single_variable(qn0_in, 'qn0in1', 'qn0_in_for_buoyancy' , 'kg/kg')
-  call output_host_model_single_variable(tabs0_in, 'tabs0in1', 'tabs0_in_for_buoyancy' , 'K')
+  ! call output_host_model_single_variable(qv0_in, 'qv0in1', 'qv0_in_for_buoyancy' , 'kg/kg')
+  ! call output_host_model_single_variable(qp0_in, 'qp0in1', 'qp0_in_for_buoyancy' , 'kg/kg')
+  ! call output_host_model_single_variable(qn0_in, 'qn0in1', 'qn0_in_for_buoyancy' , 'kg/kg')
+  ! call output_host_model_single_variable(tabs0_in, 'tabs0in1', 'tabs0_in_for_buoyancy' , 'K')
 
   ! 1-1) damping
-  call damping_hm(u_hm_map, v_hm_map, w_hm_map, dudt_hm, dvdt_hm, dwdt_hm)
+  call damping_hm(u_hm_map, w_hm_map, dudt_hm, dwdt_hm)
   call output_host_model_single_variable(dudt_hm, 'dudt_dam', 'dudt_after_damping' , 'm/s2')
-  ! call output_host_model_single_variable(dvdt_hm, 'dvdt_dam', 'dvdt_after_damping' , 'm/s2')
+
   tmp(:, :) = dwdt_hm(:,1:nzm)
   call output_host_model_single_variable(tmp, 'dwdt_dam', 'dwdt_after_damping' , 'm/s2')
 
   ! 2) 动量平流（2D，二阶中心）
-  call advect_mom_hm(u_hm_map, v_hm_map, w_hm_map, &
-                     dudt_hm, dvdt_hm, dwdt_hm)
+  call advect_mom_hm(u_hm_map, w_hm_map, &
+                     dudt_hm, dwdt_hm)
 
   call output_host_model_single_variable(dudt_hm, 'dudt2', 'dudt_after_advect_mom' , 'm/s2')
-  ! call output_host_model_single_variable(dvdt_hm, 'dvdt2', 'dvdt_after_advect_mom' , 'm/s2')
+
   tmp(:, :) = dwdt_hm(:,1:nzm)
   call output_host_model_single_variable(tmp, 'dwdt2', 'dwdt_after_advect_mom' , 'm/s2')
 
@@ -132,37 +132,34 @@ subroutine host_model_evolve( &
   call output_host_model_single_variable(p_phys, 'p_phys3', 'Pressure_Perturbation' , 'Pa')
 
   ! 4) AB 时间推进
-  call adams_hm(u_hm_map, v_hm_map, w_hm_map, dudt_hm, dvdt_hm, dwdt_hm, &
-                  u1_hm_map, v1_hm_map, w1_hm_map)
+  call adams_hm(u_hm_map, w_hm_map, dudt_hm, dwdt_hm, &
+                  u1_hm_map, w1_hm_map)
 
   call output_host_model_single_variable(u_hm_map, 'U4', 'U_after_adams' , 'm/s')
-  ! call output_host_model_single_variable(v_hm_map, 'V4', 'V_after_adams' , 'm/s')
+
   tmp(:, :) = w_hm_map(:,1:nzm)
   call output_host_model_single_variable(tmp, 'W4', 'W_after_adams' , 'm/s')
   call output_host_model_single_variable(u1_hm_map, 'U41', 'U1_after_adams' , 'm/s')
-  ! call output_host_model_single_variable(v1_hm_map, 'V41', 'V1_after_adams' , 'm/s')
   tmp(:, :) = w1_hm_map(:,1:nzm)
   call output_host_model_single_variable(tmp, 'W41', 'W1_after_adams' , 'm/s')
   ! 5) 标量平流（上风，正定）
   call advect_scalars_hm(t_hm_map, u1_hm_map, w1_hm_map)
   call advect_scalars_hm(q_hm_map, u1_hm_map, w1_hm_map)
+  call output_host_model_single_variable(t_hm_map, 't2', 't_after_advect' , 'K')
+  call output_host_model_single_variable(q_hm_map, 'q2', 'q_after_advect' , 'kg/kg')
 
   u_hm_map_save = u_hm_map
   t_hm_map_save = t_hm_map
   q_hm_map_save = q_hm_map
   call face2center_U(u_hm_map, u_out_map)
-  v_out_map = v_hm_map
   w_out_map = w_hm_map
   t_out_map = t_hm_map
   q_out_map = q_hm_map
 
-  call output_host_model(u0_in, v0_in, t0_in, q0_in,  &
-                          u_out_map, v_out_map, t_out_map, q_out_map, w_out_map,&
+  call output_host_model(u0_in, t0_in, q0_in,  &
+                          u_out_map, t_out_map, q_out_map, w_out_map,&
                           tabs0_in, qv0_in, qn0_in, qp0_in)
-  ! call write_host_diag(u0_in, v0_in, t0_in, q0_in, &
-  !                    u_hm_map, v_hm_map, t_hm_map, q_hm_map, w_hm_map, hm_step)
 
- 
 end subroutine host_model_evolve
 
 subroutine buoyancy_hm(tabs0_in, qv0_in, qn0_in, qp0_in, dwdt_hm)
@@ -205,14 +202,14 @@ end subroutine buoyancy_hm
 
 
 
-subroutine damping_hm(u_hm_map, v_hm_map, w_hm_map, dudt_hm, dvdt_hm, dwdt_hm)
+subroutine damping_hm(u_hm_map, w_hm_map, dudt_hm, dwdt_hm)
     use vars
     implicit none
 
-    real, intent(in)  :: u_hm_map(nsx, nzm), v_hm_map(nsx, nzm), w_hm_map(nsx, nz)
-    real, intent(inout) :: dudt_hm(nsx, nzm), dvdt_hm(nsx, nzm), dwdt_hm(nsx, nz)
+    real, intent(in)  :: u_hm_map(nsx, nzm), w_hm_map(nsx, nz)
+    real, intent(inout) :: dudt_hm(nsx, nzm), dwdt_hm(nsx, nz)
 
-    real :: u0_entire_domain(nzm), v0_entire_domain(nzm)
+    real :: u0_entire_domain(nzm)
 
     real tau_min	! minimum damping time-scale (at the top)
     real tau_max    ! maxim damping time-scale (base of damping layer)
@@ -236,13 +233,11 @@ subroutine damping_hm(u_hm_map, v_hm_map, w_hm_map, dudt_hm, dvdt_hm, dwdt_hm)
     ! print*, 'finish tau'
     do k = 1, nzm
         u0_entire_domain(k) = sum( u_hm_map(:,k) ) / nsx
-        v0_entire_domain(k) = sum( v_hm_map(:,k) ) / nsx
     end do
     ! print*, 'horizontal mean'
     do k = nzm, nzm-n_damp, -1
         do i=1,nsx
             dudt_hm(i,k)= dudt_hm(i,k)-(u_hm_map(i,k)-u0_entire_domain(k)) * tau(k)
-            dvdt_hm(i,k)= dvdt_hm(i,k)-(v_hm_map(i,k)-v0_entire_domain(k)) * tau(k)
             dwdt_hm(i,k)= dwdt_hm(i,k)-w_hm_map(i,k) * tau(k)
         end do
     end do 
@@ -254,25 +249,25 @@ end subroutine damping_hm
 
 !================== 动量平流：2D 二阶中心 ==================
 
-subroutine advect_mom_hm(u_hm_map, v_hm_map, w_hm_map, dudt_hm, dvdt_hm, dwdt_hm)
+subroutine advect_mom_hm(u_hm_map, w_hm_map, dudt_hm, dwdt_hm)
   implicit none
   ! 输入 
-  real, intent(in)  :: u_hm_map(nsx, nzm), v_hm_map(nsx, nzm), w_hm_map(nsx, nz)
+  real, intent(in)  :: u_hm_map(nsx, nzm), w_hm_map(nsx, nz)
 
   ! 输出
-  real, intent(inout) :: dudt_hm(nsx, nzm), dvdt_hm(nsx, nzm), dwdt_hm(nsx, nz)
+  real, intent(inout) :: dudt_hm(nsx, nzm), dwdt_hm(nsx, nz)
 
   ! 局部
   real :: dx25, dz25, irho_w, irho_k, irhow_k
-  real fu(nsx,nzm), fv(nsx,nzm), fw(nsx, nzm)     ! x 向通量
-  real fuz(nsx, nz), fvz(nsx, nz), fwz(nsx, nzm)  ! z 向通量（注意 f*u/f*v 在 w 层，大小 nz）
+  real fu(nsx,nzm), fw(nsx, nzm)     ! x 向通量
+  real fuz(nsx, nz), fwz(nsx, nzm)  ! z 向通量（注意 f*u/f*v 在 w 层，大小 nz）
   integer :: i, ic, ib, k, kc, kb, kcu
 
   !---- 初始化清零 ----
-  fu = 0.; fv = 0.; fw = 0.
+  fu = 0.; fw = 0.
   ! fuz / fvz 在 w 层定义：k=1…nz；边界 k=1,nz 设 0
-  fuz(:,1) = 0.; fvz(:,1) = 0.; fwz(:,1) = 0.
-  fuz(:,nz) = 0.; fvz(:,nz) = 0.; fwz(:,nzm) = 0.
+  fuz(:,1) = 0.; fwz(:,1) = 0.
+  fuz(:,nz) = 0.; fwz(:,nzm) = 0.
 
   dx25 = 0.25 / dx_hm         
   dz25 = 1.   / (4.*dz)
@@ -286,7 +281,6 @@ subroutine advect_mom_hm(u_hm_map, v_hm_map, w_hm_map, dudt_hm, dvdt_hm, dwdt_hm
       ic = i + 1
       if (ic > nsx) ic = ic - nsx
       fu(i,k) = dx25 * (u_hm_map(ic,k)+u_hm_map(i,k)) * (u_hm_map(i,k)+u_hm_map(ic,k))
-      fv(i,k) = dx25 * (u_hm_map(ic,k)+u_hm_map(i,k)) * (v_hm_map(i,k)+v_hm_map(ic,k))   ! advect v by u
       fw(i,k) = dx25 * ( u_hm_map(ic,k)*rho(k)*adz(k) + u_hm_map(ic,kcu)*rho(kcu)*adz(kcu) ) * &
                         ( w_hm_map(i,kc) + w_hm_map(ic,kc) )
     end do
@@ -294,7 +288,6 @@ subroutine advect_mom_hm(u_hm_map, v_hm_map, w_hm_map, dudt_hm, dvdt_hm, dwdt_hm
       ib = i - 1
       if (ib < 1) ib = nsx + ib
       dudt_hm(i,k)   = dudt_hm(i,k)   - ( fu(i,k) - fu(ib,k) )
-      dvdt_hm(i,k)   = dvdt_hm(i,k)   - ( fv(i,k) - fv(ib,k) )
       dwdt_hm(i,kc)  = dwdt_hm(i,kc)  - irho_w * ( fw(i,k) - fw(ib,k) )
     end do
   end do
@@ -306,7 +299,6 @@ subroutine advect_mom_hm(u_hm_map, v_hm_map, w_hm_map, dudt_hm, dvdt_hm, dwdt_hm
     do i = 1, nsx
       ib = i - 1; if (ib < 1) ib = nsx + ib
       fuz(i,k) = dz25 * rhow(k) * ( w_hm_map(i,k) + w_hm_map(ib,k) ) * ( u_hm_map(i,k) + u_hm_map(i,kb) )
-      fvz(i,k) = dz25 * rhow(k) * ( w_hm_map(i,k) + w_hm_map(ib,k) ) * ( v_hm_map(i,k) + v_hm_map(i,kb) )
     end do
   end do
   ! 顶层接口 k = nz (=nzm+1) 自然保持 0
@@ -317,7 +309,6 @@ subroutine advect_mom_hm(u_hm_map, v_hm_map, w_hm_map, dudt_hm, dvdt_hm, dwdt_hm
     irho_k = 1.0 / ( rho(k) * adz(k) )
     do i = 1, nsx
       dudt_hm(i,k) = dudt_hm(i,k) - ( fuz(i,kc) - fuz(i,k) ) * irho_k
-      dvdt_hm(i,k) = dvdt_hm(i,k) - ( fvz(i,kc) - fvz(i,k) ) * irho_k
       fwz(i,k)  = dz25 * ( w_hm_map(i,kc)*rhow(kc) + w_hm_map(i,k)*rhow(k) ) * ( w_hm_map(i,kc) + w_hm_map(i,k) )
     end do
   end do
@@ -337,7 +328,7 @@ end subroutine advect_mom_hm
 !================== 压力投影 ==================
 subroutine pressure_hm(u_hm_map, w_hm_map,  &
                                 dudt_hm,  dwdt_hm, p_phys)
-  use, intrinsic :: iso_fortran_env, only: real64
+
   implicit none
 
   real, intent(in)    :: u_hm_map(1:nsx, nzm)
@@ -473,7 +464,7 @@ subroutine pressure_hm(u_hm_map, w_hm_map,  &
   do k = 1, nzm
     do i = 1, nsx
       im = i - 1; if (im < 1)   im = nsx + im
-      dudt_hm(i,k) = dudt_hm(i,k) - (p_phys(i,k) - p_phys(im,k))/dx_hm  !dvdt_hm不做更新
+      dudt_hm(i,k) = dudt_hm(i,k) - (p_phys(i,k) - p_phys(im,k))/dx_hm  
       dwdt_hm(i,k) = dwdt_hm(i,k) - (p_phys(i,k)-p_phys(i,max(1,k-1)))/(dz*adzw(k))
     end do
   end do
@@ -488,11 +479,11 @@ end subroutine pressure_hm
 
 
 !================== Adams–Bashforth 时间推进 ==================
-subroutine adams_hm(u, v, w, dudt_hm, dvdt_hm, dwdt_hm, u1, v1, w1)
+subroutine adams_hm(u, w, dudt_hm, dwdt_hm, u1, w1)
   implicit none
-  real, intent(inout) :: u(nsx, nzm), v(nsx, nzm), w(nsx, nz)
-  real, intent(in)    :: dudt_hm(nsx, nzm), dvdt_hm(nsx, nzm), dwdt_hm(nsx, nz)
-  real, intent(out)   :: u1(nsx, nzm), v1(nsx, nzm), w1(nsx, nz)
+  real, intent(inout) :: u(nsx, nzm), w(nsx, nz)
+  real, intent(in)    :: dudt_hm(nsx, nzm), dwdt_hm(nsx, nz)
+  real, intent(out)   :: u1(nsx, nzm), w1(nsx, nz)
 
   real :: at, bt, ct
   real :: dtdx, dtdz, rhox, rhoy, rhoz , a1, a2
@@ -530,12 +521,10 @@ subroutine adams_hm(u, v, w, dudt_hm, dvdt_hm, dwdt_hm, u1, v1, w1)
   ! end do; end do
 
   u1(:,:) = u(:,:)
-  v1(:,:) = v(:,:)
   w1(:,:) = w(:,:)
 
   do k=1,nzm; do i=1,nsx
     u(i,k) = u1(i,k) + dt_hm*dudt_hm(i,k) 
-    v(i,k) = v1(i,k) + dt_hm*dvdt_hm(i,k)
     w(i,k) = w1(i,k) + dt_hm*dwdt_hm(i,k)
   end do; end do
   
@@ -554,7 +543,6 @@ subroutine adams_hm(u, v, w, dudt_hm, dvdt_hm, dwdt_hm, u1, v1, w1)
     rhoz = rhow(k)*dtdz
     do i=1,nsx
       u1(i,k) = (a1*u(i,k)+a2*u1(i,k))*rhox
-      v1(i,k) = (a1*v(i,k)+a2*v1(i,k))*rhox ! assume dx_hm = dy_hm
       w1(i,k) = (a1*w(i,k)+a2*w1(i,k))*rhoz
     end do
   end do
@@ -756,11 +744,11 @@ if(donudging_uv) then
     do k=1,nzm
       if(z(k).ge.nudging_uv_z1.and.z(k).le.nudging_uv_z2) then
         unudge(k)=unudge(k) - (u0_local_hm(k)-ug0_hm(k))*coef
-        vnudge(k)=vnudge(k) - (v0_local_hm(k)-vg0_hm(k))*coef
+        vnudge(k)=vnudge(k) - (v0(k)-vg0(k))/tauls
         do j=1,ny
           do i=1,nx
              dudt(i,j,k,na)=dudt(i,j,k,na)-(u0_local_hm(k)-ug0_hm(k))*coef
-             dvdt(i,j,k,na)=dvdt(i,j,k,na)-(v0_local_hm(k)-vg0_hm(k))*coef
+             dvdt(i,j,k,na)=dvdt(i,j,k,na)-(v0(k)-vg0(k))/tauls
           end do
         end do
       end if
@@ -803,15 +791,15 @@ end subroutine nudging_hm
 
 
      
-subroutine output_host_model(u0_in, v0_in, t0_in, q0_in,  &
-  u_out_map, v_out_map, t_out_map, q_out_map, w_out_map,  &
+subroutine output_host_model(u0_in, t0_in, q0_in,  &
+  u_out_map, t_out_map, q_out_map, w_out_map,  &
   tabs0_in, qv0_in, qn0_in, qp0_in)         ! 输出形状是（nsx，nzm ）的变量
 	
     use vars
 
     implicit none
-    real, intent(in) :: u0_in(nsx, nzm), v0_in(nsx, nzm), t0_in(nsx, nzm), q0_in(nsx, nzm)
-    real, intent(in) :: u_out_map(nsx, nzm), v_out_map(nsx, nzm), t_out_map(nsx, nzm), q_out_map(nsx, nzm), w_out_map(nsx, nz)
+    real, intent(in) :: u0_in(nsx, nzm), t0_in(nsx, nzm), q0_in(nsx, nzm)
+    real, intent(in) :: u_out_map(nsx, nzm), t_out_map(nsx, nzm), q_out_map(nsx, nzm), w_out_map(nsx, nz)
     real, intent(in) :: tabs0_in(nsx, nzm), qv0_in(nsx, nzm), qn0_in(nsx, nzm), qp0_in(nsx, nzm)
     character *120 filename
     character *80 long_name
@@ -827,7 +815,7 @@ subroutine output_host_model(u0_in, v0_in, t0_in, q0_in,  &
     integer, external :: lenstr
 
 
-    nfields_hm=13 ! number of 3D fields to save
+    nfields_hm=11 ! number of 3D fields to save
     nfields1_hm=0
 
     sepchar=""
@@ -841,7 +829,7 @@ subroutine output_host_model(u0_in, v0_in, t0_in, q0_in,  &
     print*, 'Rank=', rank, '*************begin output_host_model***************'
 
     filetype = '.bin2D'
-    filename='./OUT_3D/no_subdomain_only_hm/'//trim(case)//'_'//trim(caseid)//&
+    filename='./OUT_3D/host2/'//trim(case)//'_'//trim(caseid)//&
     filetype//sepchar
     if(nrestart.eq.0.and.notopened3D) then
         open(46,file=filename,status='unknown',form='unformatted')	
@@ -879,16 +867,7 @@ subroutine output_host_model(u0_in, v0_in, t0_in, q0_in,  &
     call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
 
    
-    nfields1_hm=nfields1_hm+1
-    do k=1,nzm
-        do i=1,nsx
-            tmp(i,1,k)=v0_in(i,k)
-        end do
-    end do
-    name='V0_In'
-    long_name='Input Y Wind Component For Host Model'
-    units='m/s'
-    call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
+    
 
     nfields1_hm=nfields1_hm+1
     do k=1,nzm
@@ -967,16 +946,7 @@ subroutine output_host_model(u0_in, v0_in, t0_in, q0_in,  &
     units='m/s'
     call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
 
-    nfields1_hm=nfields1_hm+1
-    do k=1,nzm
-        do i=1,nsx
-            tmp(i,1,k)=v_out_map(i,k)
-        end do
-    end do
-    name='V0_Out'
-    long_name='Output Y Wind Component For Host Model'
-    units='m/s'
-    call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
+   
 
     nfields1_hm=nfields1_hm+1
     do k=1,nzm
@@ -1062,7 +1032,7 @@ subroutine output_host_model_single_variable(u0_in, v_name,v_longname,v_unit)
     print*, 'Rank=', rank, '*************begin output_host_model***************'
 
     filetype = '.bin2D'
-    filename='./OUT_3D/no_subdomain_only_hm/'//trim(case)//'_'//trim(caseid)//&
+    filename='./OUT_3D/host2/'//trim(case)//'_'//trim(caseid)//&
     '_'//trim(name)//filetype//sepchar
     if(nrestart.eq.0.and.notopened3D) then
         open(46,file=filename,status='unknown',form='unformatted')	
@@ -1238,5 +1208,68 @@ subroutine solve_w_from_u(delta_u_hm_map, delta_w_hm_map)
     end do
   end do
 end subroutine solve_w_from_u
+
+subroutine hot_bubble(hm_step, t)
+    use grid, only: nsx, nzm
+    implicit none
+    integer, intent(in) :: hm_step       
+    real, intent(inout) :: t(nsx, nzm)    
+    
+    real :: amp, x_wave, z_wave, x_center
+    integer :: i, k
+    real, parameter :: period = 20.0   
+    real, parameter :: base_amp = 1.0  
+    real, parameter :: z_scale = 8.0   
+    real, parameter :: x_scale = 2.0   
+    real, parameter :: pi = acos(-1.0)
+
+    x_center = real(nsx) / 2.0
+    amp = base_amp * sin(2.0 * pi * min(1.,real(hm_step) / period))
+
+ 
+    do k = 1, nzm
+        z_wave = sin(pi * min(1.,real(k)/z_scale))
+        do i = 1, nsx
+            x_wave = exp(-((real(i)-x_center)**2) / (x_scale)**2)
+            t(i,k) = t(i,k) + amp * x_wave * z_wave
+        end do
+    end do
+
+end subroutine hot_bubble
+
+subroutine buoyancy_only_in_hm(t_hm_map, q_hm_map, dwdt_hm)
+  use vars
+  use params
+  implicit none
+  real, intent(in)  :: t_hm_map(nsx, nzm), q_hm_map(nsx, nzm)
+  real, intent(inout) :: dwdt_hm(nsx, nz)
+  real :: tabs0_entire_domain(nzm), qv0_entire_domain(nzm)
+  real :: tabs_map(nsx,nzm)
+  integer i,k,kb
+  real betu, betd
+	
+  do k = 1, nzm
+      do i = 1, nsx
+        tabs_map(i,k) = t_hm_map(i,k) - gamaz(k)
+      end do
+      tabs0_entire_domain(k) = sum( tabs_map(:,k) ) / nsx
+      qv0_entire_domain(k) = sum( q_hm_map(:,k) ) / nsx    
+  end do
+  do k=2,nzm	
+    kb=k-1
+    betu=adz(kb)/(adz(k)+adz(kb))
+    betd=adz(k)/(adz(k)+adz(kb))
+    do i=1,nsx
+      dwdt_hm(i,k)=dwdt_hm(i,k) +  &
+          bet(k)*betu* &
+        ( tabs0_entire_domain(k)*(epsv*(q_hm_map(i,k)-qv0_entire_domain(k))) &
+          +(tabs_map(i,k)-tabs0_entire_domain(k))*(1.+epsv*qv0_entire_domain(k)) ) &
+        + bet(kb)*betd* &
+        ( tabs0_entire_domain(kb)*(epsv*(q_hm_map(i,kb)-qv0_entire_domain(kb))) &
+          +(tabs_map(i,kb)-tabs0_entire_domain(kb))*(1.+epsv*qv0_entire_domain(kb)) )  
+    end do
+  end do
+
+end subroutine buoyancy_only_in_hm
 
 end module module_hostmodel
