@@ -232,7 +232,6 @@ logical :: wsub_inited = .false.
 integer :: hm_step = 0
 
 real u0_local_hm(nzm)
-real v0_local_hm(nzm)
 real t0_local_hm(nzm)
 real q0_local_hm(nzm)
 real tabs0_local_hm(nzm)
@@ -243,7 +242,6 @@ real qp0_local_hm(nzm)
 
 
 real ug0_hm(nzm)
-real vg0_hm(nzm)
 real tg0_hm(nzm)
 real qg0_hm(nzm)
 

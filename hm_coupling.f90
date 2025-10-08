@@ -17,7 +17,7 @@ subroutine hm_couple_step()
    
    
 
-    real, allocatable :: u0_map(:,:), v0_map(:,:), t0_map(:,:), q0_map(:,:)
+    real, allocatable :: u0_map(:,:),  t0_map(:,:), q0_map(:,:)
     real, allocatable :: u_out_map(:,:), v_out_map(:,:), t_out_map(:,:), q_out_map(:,:)
     real, allocatable :: w_out_map(:,:)
     real, allocatable :: dummy2d(:,:)
@@ -29,12 +29,12 @@ subroutine hm_couple_step()
     real, allocatable :: tabs0_map(:,:), qv0_map(:,:), qn0_map(:,:), qp0_map(:,:)
 
     if (masterproc) then
-        allocate(u0_map(nsx, nzm), v0_map(nsx, nzm),  &
+        allocate(u0_map(nsx, nzm), &
                 t0_map(nsx, nzm), q0_map(nsx, nzm),  &
                 tabs0_map(nsx, nzm), qv0_map(nsx, nzm),  &
                 qn0_map(nsx, nzm), qp0_map(nsx, nzm))
                 
-        allocate(u_out_map(nsx, nzm), v_out_map(nsx, nzm),  &
+        allocate(u_out_map(nsx, nzm),  &
                 t_out_map(nsx, nzm), q_out_map(nsx, nzm))
         allocate(w_out_map(nsx, nz))
     else
@@ -55,7 +55,6 @@ subroutine hm_couple_step()
     ! then the masterproc will distribute the results back to each subdomain
 
     u0_local_hm = u0
-    v0_local_hm = v0
     t0_local_hm = t0
     ! q0_local_hm = q0
     tabs0_local_hm = tabs0
@@ -70,12 +69,7 @@ subroutine hm_couple_step()
     else
         call task_bgather_float_map(0, u0_local_hm(1), nzm, nsx, dummy2d)
     end if
-    ! gather v0
-    if (masterproc) then
-        call task_bgather_float_map(0, v0_local_hm(1), nzm, nsx, v0_map)
-    else
-        call task_bgather_float_map(0, v0_local_hm(1), nzm, nsx, dummy2d)
-    end if
+   
     ! gather t0
     if (masterproc) then
         call task_bgather_float_map(0, t0_local_hm(1), nzm, nsx, t0_map)
@@ -193,10 +187,10 @@ subroutine hm_couple_step()
 
 
         !------------- 调用 host model -------------
-        call host_model_evolve( u0_in=u0_map, v0_in=v0_map, wsub_in=wsub_map, &
+        call host_model_evolve( u0_in=u0_map, wsub_in=wsub_map, &
                             t0_in=t0_map, q0_in=q0_map,                    &
                             tabs0_in = tabs0_map, qv0_in = qv0_map, qn0_in = qn0_map, qp0_in = qp0_map,   &
-                            u_out_map=u_out_map, v_out_map=v_out_map,            &
+                            u_out_map=u_out_map,           &
                             w_out_map=w_out_map, t_out_map=t_out_map, q_out_map=q_out_map )
         
         wsub_map(:, :)         = w_out_map(:, :)
@@ -227,12 +221,7 @@ subroutine hm_couple_step()
     else
         call task_bscatter_float_map(0, dummy2d,  nzm, nsx, ug0_hm(1))
     end if
-    ! distribute vg0_hm
-    if (masterproc) then
-        call task_bscatter_float_map(0, v_out_map, nzm, nsx, vg0_hm(1))
-    else
-        call task_bscatter_float_map(0, dummy2d,  nzm, nsx, vg0_hm(1))
-    end if
+ 
     ! distribute tg0_hm
     if (masterproc) then
         call task_bscatter_float_map(0, t_out_map, nzm, nsx, tg0_hm(1))
@@ -282,7 +271,6 @@ subroutine hm_couple_step()
     !------------------------------------------------------------
     if (masterproc) then
         if (allocated(u0_map))    deallocate(u0_map)
-        if (allocated(v0_map))    deallocate(v0_map)
         if (allocated(t0_map))    deallocate(t0_map)
         if (allocated(q0_map))    deallocate(q0_map)
         if (allocated(tabs0_map))    deallocate(tabs0_map)
@@ -290,7 +278,6 @@ subroutine hm_couple_step()
         if (allocated(qn0_map))    deallocate(qn0_map)
         if (allocated(qp0_map))    deallocate(qp0_map)
         if (allocated(u_out_map))  deallocate(u_out_map)  
-        if (allocated(v_out_map))  deallocate(v_out_map)  
         if (allocated(t_out_map))  deallocate(t_out_map)  
         if (allocated(q_out_map))  deallocate(q_out_map)  
         if (allocated(w_out_map))  deallocate(w_out_map)  
