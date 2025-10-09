@@ -119,9 +119,7 @@ nstatsteps = 0
 
 ! HOST MODEL
 if(dompimmf) then
-     if(masterproc) then
-          call host_model_init()
-     end if
+     call set_constant_sst_hm()
 end if
 
 call t_stopf ('initialize')
@@ -132,10 +130,22 @@ call t_stopf ('initialize')
 do while(nstep.lt.nstop.and.nelapse.gt.0) 
  
      ! Host model
-     if(dompiensemble.or.dompimmf) dompi = .true.
      if(dompimmf) then
-          if(mod(nstep, nstephostmodel).eq.0) then
-          call hm_couple_step()
+          if ((nstep .ge. hm_spinup_step) .and. (.not. wsub_inited)) then
+               call set_sin_x_sst()
+               call host_model_init()
+          end if
+     end if
+
+     if(dompiensemble.or.dompimmf) dompi = .true.
+     if (wsub_inited) then
+          if(dompimmf) then
+               if(mod(nstep, nstephostmodel).eq.0) then
+                    call hm_couple_step()
+                    if (.not. could_hm_nudging) then
+                         could_hm_nudging = .true.
+                    end if
+               end if
           end if
      end if
 
@@ -224,8 +234,12 @@ do while(nstep.lt.nstop.and.nelapse.gt.0)
 !       Nadging to sounding:
 
      if (dompimmf) then
-          if (nstep .gt. nstephostmodel) then
-              call nudging_hm()
+          if (could_hm_nudging) then
+               if (nouvchatting) then
+                    call nudging_hm_nouv()
+               else
+                    call nudging_hm()
+               end if
           else
                call nudging()
           end if

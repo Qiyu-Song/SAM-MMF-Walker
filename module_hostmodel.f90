@@ -3,7 +3,7 @@ module module_hostmodel
   use vars, only: rho, rhow, hm_step
   implicit none
   private
-  public :: host_model_init, host_model_finalize, host_model_evolve, nudging_hm
+  public :: host_model_init, host_model_finalize, host_model_evolve, nudging_hm, nudging_hm_nouv, set_constant_sst_hm, set_sin_x_sst
 
  
 
@@ -19,8 +19,9 @@ subroutine host_model_init()
   end if
 
   if (.not. wsub_inited) then
-    wsub_map = 0.0     ! 设定初值
+    wsub_map = 0.0     
     wsub_inited = .true.
+    could_hm_nudging = .false.
     hm_step = 0
     u_hm_map_save = 0.
     u_sub_map_save = 0.
@@ -32,8 +33,37 @@ subroutine host_model_init()
       q_sub_map_save(i,:) = qv0(:)
     end do
   end if
-sstxy(1:nx, 1:ny) = sum(sstxy(:,:))/(nx*ny)
+
 end subroutine host_model_init
+
+subroutine set_constant_sst_hm()
+  use vars, only: sstxy,t00
+  use params, only: tabs_s, delta_sst, ocean_type
+  use grid
+  sstxy = tabs_s - t00
+end subroutine set_constant_sst_hm
+
+
+subroutine set_sin_x_sst()
+  use vars, only: sstxy,t00
+  use params, only: tabs_s, delta_sst, ocean_type
+  use grid
+  implicit none
+  real(8) tmpx(nx), pii, lx
+  integer i,j
+  sstxy = tabs_s - t00
+  lx = float(nx_gl)*dx
+  do i = 1,nx
+    tmpx(i) = float(mod(rank,nsubdomains_x)*nx+i-1)*dx
+  end do
+  pii = atan2(0.d0,-1.d0)
+  do j=1,ny
+    do i=1,nx
+      sstxy(i,j) = tabs_s-delta_sst*cos(2.*pii*tmpx(i)/lx) - t00
+    end do
+  end do
+  sstxy(1:nx, 1:ny) = sum(sstxy(:,:))/(nx*ny)
+end subroutine set_sin_x_sst
 
 
 subroutine host_model_finalize()  !暂时不打算调用
@@ -82,37 +112,42 @@ subroutine host_model_evolve( &
   
   w_hm_map = wsub_in
   
-  call face2center_U((u_hm_updated_map_save-u_hm_map_save),tmp1)
+    
+  if (.not. nouvchatting) then
+    call face2center_U((u_hm_updated_map_save-u_hm_map_save),tmp1)
 
-  call output_host_model_single_variable(u_hm_updated_map_save-u_hm_map_save, 'deltaU', 'u_hm_updated-u_hm' , 'm/s')
+    call output_host_model_single_variable(u_hm_updated_map_save-u_hm_map_save, 'deltaU', 'u_hm_updated-u_hm' , 'm/s')
 
-  call center2face_U((u0_in-u_sub_map_save-tmp1), tmp2)
+    call center2face_U((u0_in-u_sub_map_save-tmp1), tmp2)
 
-  call output_host_model_single_variable(tmp2, 'delta2U', 'modification_to_Uhm' , 'm/s')
+    call output_host_model_single_variable(tmp2, 'delta2U', 'modification_to_Uhm' , 'm/s')
 
-  u_hm_map = u_hm_updated_map_save
-  dudt_hm = tmp2/dt_hm
-  dwdt_hm = 0.0
-  ! --------------------------------------------修正u,w------------------------------------------------------------
-  call pressure_hm(u_hm_map, w_hm_map, &
-                            dudt_hm, dwdt_hm, p_phys)
+    u_hm_map = u_hm_updated_map_save
+    dudt_hm = tmp2/dt_hm
+    dwdt_hm = 0.0
+    ! --------------------------------------------修正u,w------------------------------------------------------------
+    call pressure_hm(u_hm_map, w_hm_map, &
+                              dudt_hm, dwdt_hm, p_phys)
 
-  call output_host_model_single_variable(dudt_hm, 'dudt_R', 'dudt_after_pressure_R' , 'm/s2')
-  tmp(:, :) = dwdt_hm(:,1:nzm)
-  call output_host_model_single_variable(tmp, 'dwdt_R', 'dwdt_after_pressure_R' , 'm/s2')
-  call output_host_model_single_variable(p_phys, 'p_phys_R', 'Pressure_Perturbation_R' , 'Pa')
+    call output_host_model_single_variable(dudt_hm, 'dudt_R', 'dudt_after_pressure_R' , 'm/s2')
+    tmp(:, :) = dwdt_hm(:,1:nzm)
+    call output_host_model_single_variable(tmp, 'dwdt_R', 'dwdt_after_pressure_R' , 'm/s2')
+    call output_host_model_single_variable(p_phys, 'p_phys_R', 'Pressure_Perturbation_R' , 'Pa')
 
-  ! 4) AB 时间推进
-  call adams_hm(u_hm_map,  w_hm_map, dudt_hm, dwdt_hm, &
-                  u1_hm_map, w1_hm_map)
+    ! 4) AB 时间推进
+    call adams_hm(u_hm_map,  w_hm_map, dudt_hm, dwdt_hm, &
+                    u1_hm_map, w1_hm_map)
 
-  call output_host_model_single_variable(u_hm_map, 'U_R', 'U_after_adams_R' , 'm/s')
-  tmp(:, :) = w_hm_map(:,1:nzm)
-  call output_host_model_single_variable(tmp, 'W_R', 'W_after_adams_R' , 'm/s')
+    call output_host_model_single_variable(u_hm_map, 'U_R', 'U_after_adams_R' , 'm/s')
+    tmp(:, :) = w_hm_map(:,1:nzm)
+    call output_host_model_single_variable(tmp, 'W_R', 'W_after_adams_R' , 'm/s')
 
-  ! ------------------------------------------------------------------------------------------------------------------
-  
-  u_sub_map_save = u0_in
+    ! ------------------------------------------------------------------------------------------------------------------
+    
+    u_sub_map_save = u0_in
+  else
+    u_hm_map = u_hm_updated_map_save
+  end if
 
   t_hm_map = t_hm_map_save + t0_in - t_sub_map_save
   t_sub_map_save = t0_in
@@ -126,7 +161,6 @@ subroutine host_model_evolve( &
   u_hm_map_save = u_start_map
   t_hm_map_save = t_start_map
   q_hm_map_save = q_start_map
-  
   ! call output_host_model_single_variable(u_hm_map, 'U00', 'U_after_1st_interpolation' , 'm/s')
 
 
@@ -878,7 +912,73 @@ endif
 
 end subroutine nudging_hm
 
+subroutine nudging_hm_nouv()
+! keep nudging terms constant in each host model time step
+	
+use vars
+use params
+use microphysics, only: micro_field, index_water_vapor
+implicit none
 
+real coef, coef1
+integer i,j,k
+	
+! call t_startf ('nudging_hm')
+
+tnudge = 0.
+qnudge = 0.
+unudge = 0.
+vnudge = 0.
+
+coef = 1./dt_hm
+
+if(donudging_uv) then
+    do k=1,nzm
+      if(z(k).ge.nudging_uv_z1.and.z(k).le.nudging_uv_z2) then
+        unudge(k)=unudge(k) - (u0(k)-ug0(k))/tauls
+        vnudge(k)=vnudge(k) - (v0(k)-vg0(k))/tauls
+        do j=1,ny
+          do i=1,nx
+             dudt(i,j,k,na)=dudt(i,j,k,na)-(u0(k)-ug0(k))/tauls
+             dvdt(i,j,k,na)=dvdt(i,j,k,na)-(v0(k)-vg0(k))/tauls
+          end do
+        end do
+      end if
+    end do
+endif
+
+! no minus gamaz here since both t0_local_hm and tg0_hm include gamaz
+if(donudging_tq.or.donudging_t) then
+    coef1 = dtn / dt_hm
+    do k=1,nzm
+      if(z(k).ge.nudging_t_z1.and.z(k).le.nudging_t_z2) then
+        tnudge(k)=tnudge(k) -(-tg0_hm(k))*coef
+        do j=1,ny
+          do i=1,nx
+             t(i,j,k)=t(i,j,k)-(-tg0_hm(k))*coef1
+          end do
+        end do
+      end if
+    end do
+endif
+
+if(donudging_tq.or.donudging_q) then
+    coef1 = dtn / dt_hm
+    do k=1,nzm
+      if(z(k).ge.nudging_q_z1.and.z(k).le.nudging_q_z2) then
+        qnudge(k)=qnudge(k) -(-qg0_hm(k))*coef
+        do j=1,ny
+          do i=1,nx
+             micro_field(i,j,k,index_water_vapor)=micro_field(i,j,k,index_water_vapor)-(-qg0_hm(k))*coef1
+          end do
+        end do
+      end if
+    end do
+endif
+
+! call t_stopf('nudging_hm')
+
+end subroutine nudging_hm_nouv
 
      
 subroutine output_host_model(u0_in, t0_in, q0_in,  &
@@ -919,7 +1019,7 @@ subroutine output_host_model(u0_in, t0_in, q0_in,  &
     print*, 'Rank=', rank, '*************begin output_host_model***************'
 
     filetype = '.bin2D'
-    filename='./OUT_3D/tend_residual_check_res/'//trim(case)//'_'//trim(caseid)//&
+    filename='./OUT_3D/spin_up_tend_resid/'//trim(case)//'_'//trim(caseid)//&
     filetype//sepchar
     if(nrestart.eq.0.and.notopened3D) then
         open(46,file=filename,status='unknown',form='unformatted')	
@@ -1121,7 +1221,7 @@ subroutine output_host_model_single_variable(u0_in, v_name,v_longname,v_unit)
     print*, 'Rank=', rank, '*************begin output_host_model***************'
 
     filetype = '.bin2D'
-    filename='./OUT_3D/tend_residual_check_res/'//trim(case)//'_'//trim(caseid)//&
+    filename='./OUT_3D/spin_up_tend_resid/'//trim(case)//'_'//trim(caseid)//&
     '_'//trim(name)//filetype//sepchar
     if(nrestart.eq.0.and.notopened3D) then
         open(46,file=filename,status='unknown',form='unformatted')	
