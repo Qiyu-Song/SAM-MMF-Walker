@@ -12,7 +12,8 @@ contains
 subroutine host_model_init()
   use vars
   implicit none
-  integer i
+  integer i, k
+  real :: dudt_tmp(nsx, nzm), dwdt_tmp(nsx, nz), tmp(nsx, nzm), tmp2(nsx, nz)
 
   if (.not. allocated(wsub_map)) then
     allocate(wsub_map(nsx, nz))
@@ -23,9 +24,21 @@ subroutine host_model_init()
     wsub_inited = .true.
     could_hm_nudging = .false.
     hm_step = 0
-    u_hm_map_save = 0.
+    ! u_hm_map_save = 0.
+    ! u_sub_map_save = 0.
+    ! u_hm_updated_map_save = 0.
+    ! ----------------添加条带的初始场-----------------
+    do k = 1, 3
+      do i = 1, nsx
+        u_hm_map_save(i,k) = (-1.0)**(i+1)
+      end do
+    end do
+    tmp = 0.
+    call pressure_hm(u_hm_map_save, wsub_map, dudt_tmp, dwdt_tmp, tmp)
+    call adams_hm(u_hm_map_save,  wsub_map, dudt_tmp, dwdt_tmp, tmp, tmp2)
     u_sub_map_save = 0.
-    u_hm_updated_map_save = 0.
+    u_hm_updated_map_save = u_hm_map_save
+    ! ------------------------------------------------
     do i = 1, nsx
       t_hm_map_save(i,:) = t0(:)
       t_sub_map_save(i,:) = t0(:)
@@ -112,57 +125,65 @@ subroutine host_model_evolve( &
   
   w_hm_map = wsub_in
   
-    
-  if (.not. nouvchatting) then
-    call face2center_U((u_hm_updated_map_save-u_hm_map_save),tmp1)
-
-    call output_host_model_single_variable(u_hm_updated_map_save-u_hm_map_save, 'deltaU', 'u_hm_updated-u_hm' , 'm/s')
-
-    call center2face_U((u0_in-u_sub_map_save-tmp1), tmp2)
-
-    call output_host_model_single_variable(tmp2, 'delta2U', 'modification_to_Uhm' , 'm/s')
-
+  if (hm_only) then
     u_hm_map = u_hm_updated_map_save
-    dudt_hm = tmp2/dt_hm
-    dwdt_hm = 0.0
-    ! --------------------------------------------修正u,w------------------------------------------------------------
-    call pressure_hm(u_hm_map, w_hm_map, &
-                              dudt_hm, dwdt_hm, p_phys)
-
-    call output_host_model_single_variable(dudt_hm, 'dudt_R', 'dudt_after_pressure_R' , 'm/s2')
-    tmp(:, :) = dwdt_hm(:,1:nzm)
-    call output_host_model_single_variable(tmp, 'dwdt_R', 'dwdt_after_pressure_R' , 'm/s2')
-    call output_host_model_single_variable(p_phys, 'p_phys_R', 'Pressure_Perturbation_R' , 'Pa')
-
-    ! 4) AB 时间推进
-    call adams_hm(u_hm_map,  w_hm_map, dudt_hm, dwdt_hm, &
-                    u1_hm_map, w1_hm_map)
-
-    call output_host_model_single_variable(u_hm_map, 'U_R', 'U_after_adams_R' , 'm/s')
-    tmp(:, :) = w_hm_map(:,1:nzm)
-    call output_host_model_single_variable(tmp, 'W_R', 'W_after_adams_R' , 'm/s')
-
-    ! ------------------------------------------------------------------------------------------------------------------
-    
-    u_sub_map_save = u0_in
+    t_hm_map = t_hm_map_save
+    q_hm_map = q_hm_map_save
+   
+    u_start_map = u_hm_map
+    t_start_map = t_hm_map
+    q_start_map = q_hm_map
   else
-    u_hm_map = u_hm_updated_map_save
+    if (.not. nouvchatting) then
+      call face2center_U((u_hm_updated_map_save-u_hm_map_save),tmp1)
+
+      call output_host_model_single_variable(u_hm_updated_map_save-u_hm_map_save, 'deltaU', 'u_hm_updated-u_hm' , 'm/s')
+
+      call center2face_U((u0_in-u_sub_map_save-tmp1), tmp2)
+
+      call output_host_model_single_variable(tmp2, 'delta2U', 'modification_to_Uhm' , 'm/s')
+
+      u_hm_map = u_hm_updated_map_save
+      dudt_hm = tmp2/dt_hm
+      dwdt_hm = 0.0
+      ! --------------------------------------------修正u,w------------------------------------------------------------
+      call pressure_hm(u_hm_map, w_hm_map, &
+                                dudt_hm, dwdt_hm, p_phys)
+
+      call output_host_model_single_variable(dudt_hm, 'dudt_R', 'dudt_after_pressure_R' , 'm/s2')
+      tmp(:, :) = dwdt_hm(:,1:nzm)
+      call output_host_model_single_variable(tmp, 'dwdt_R', 'dwdt_after_pressure_R' , 'm/s2')
+      call output_host_model_single_variable(p_phys, 'p_phys_R', 'Pressure_Perturbation_R' , 'Pa')
+
+      ! 4) AB 时间推进
+      call adams_hm(u_hm_map,  w_hm_map, dudt_hm, dwdt_hm, &
+                      u1_hm_map, w1_hm_map)
+
+      call output_host_model_single_variable(u_hm_map, 'U_R', 'U_after_adams_R' , 'm/s')
+      tmp(:, :) = w_hm_map(:,1:nzm)
+      call output_host_model_single_variable(tmp, 'W_R', 'W_after_adams_R' , 'm/s')
+
+      ! ------------------------------------------------------------------------------------------------------------------
+      
+      u_sub_map_save = u0_in
+    else
+      u_hm_map = u_hm_updated_map_save
+    end if
+
+    t_hm_map = t_hm_map_save + t0_in - t_sub_map_save
+    t_sub_map_save = t0_in
+
+    q_hm_map = q_hm_map_save + q0_in - q_sub_map_save
+    q_sub_map_save = q0_in
+
+    u_start_map = u_hm_map
+    t_start_map = t_hm_map
+    q_start_map = q_hm_map
+    u_hm_map_save = u_start_map
+    t_hm_map_save = t_start_map
+    q_hm_map_save = q_start_map
+    ! call output_host_model_single_variable(u_hm_map, 'U00', 'U_after_1st_interpolation' , 'm/s')
   end if
-
-  t_hm_map = t_hm_map_save + t0_in - t_sub_map_save
-  t_sub_map_save = t0_in
-
-  q_hm_map = q_hm_map_save + q0_in - q_sub_map_save
-  q_sub_map_save = q0_in
-
-  u_start_map = u_hm_map
-  t_start_map = t_hm_map
-  q_start_map = q_hm_map
-  u_hm_map_save = u_start_map
-  t_hm_map_save = t_start_map
-  q_hm_map_save = q_start_map
-  ! call output_host_model_single_variable(u_hm_map, 'U00', 'U_after_1st_interpolation' , 'm/s')
-
 
   dudt_hm = 0.0; dwdt_hm = 0.0
 
@@ -237,7 +258,11 @@ subroutine host_model_evolve( &
   q_out_map = q_hm_map - q_start_map
   call face2center_U((u_hm_map-u_start_map), u_out_map)
   w_out_map = w_hm_map
-  
+
+  if (hm_only) then
+    t_hm_map_save = t_hm_map
+    q_hm_map_save = q_hm_map
+  end if
 
   call output_host_model(u0_in, t0_in, q0_in,  &
                           u_out_map, t_out_map, q_out_map, w_out_map,&
@@ -1019,7 +1044,7 @@ subroutine output_host_model(u0_in, t0_in, q0_in,  &
     print*, 'Rank=', rank, '*************begin output_host_model***************'
 
     filetype = '.bin2D'
-    filename='./OUT_3D/spin_up_tend_resid/'//trim(case)//'_'//trim(caseid)//&
+    filename='./OUT_3D/stripe_init/'//trim(case)//'_'//trim(caseid)//&
     filetype//sepchar
     if(nrestart.eq.0.and.notopened3D) then
         open(46,file=filename,status='unknown',form='unformatted')	
@@ -1221,7 +1246,7 @@ subroutine output_host_model_single_variable(u0_in, v_name,v_longname,v_unit)
     print*, 'Rank=', rank, '*************begin output_host_model***************'
 
     filetype = '.bin2D'
-    filename='./OUT_3D/spin_up_tend_resid/'//trim(case)//'_'//trim(caseid)//&
+    filename='./OUT_3D/stripe_init/'//trim(case)//'_'//trim(caseid)//&
     '_'//trim(name)//filetype//sepchar
     if(nrestart.eq.0.and.notopened3D) then
         open(46,file=filename,status='unknown',form='unformatted')	

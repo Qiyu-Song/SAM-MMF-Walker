@@ -235,8 +235,13 @@ do while(nstep.lt.nstop.and.nelapse.gt.0)
 
      if (dompimmf) then
           if (could_hm_nudging) then
-               if (nouvchatting) then
-                    call nudging_hm_nouv()
+               ! if (nouvchatting) then
+               !      call nudging_hm_nouv()
+               ! else
+               !      call nudging_hm()
+               ! end if
+               if (hm_only) then
+                    call nudging()
                else
                     call nudging_hm()
                end if

@@ -256,5 +256,6 @@ real q_sub_map_save(nsx, nzm)
 integer :: hm_spinup_step
 logical :: could_hm_nudging = .false.
 logical :: nouvchatting = .false.
+logical :: hm_only = .false.
 
 end module vars
