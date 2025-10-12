@@ -3,8 +3,8 @@ module module_hostmodel
   use vars, only: rho, rhow, hm_step
   implicit none
   private
-  public :: host_model_init, host_model_finalize, host_model_evolve, nudging_hm, nudging_hm_nouv, set_constant_sst_hm, set_sin_x_sst
-
+  public :: host_model_init, host_model_finalize, host_model_evolve, nudging_hm, nudging_hm_nouv
+  public :: set_constant_sst_hm, set_sin_x_sst, set_sin_x_sst_stripe
  
 
 contains
@@ -24,20 +24,20 @@ subroutine host_model_init()
     wsub_inited = .true.
     could_hm_nudging = .false.
     hm_step = 0
-    ! u_hm_map_save = 0.
-    ! u_sub_map_save = 0.
-    ! u_hm_updated_map_save = 0.
-    ! ----------------添加条带的初始场-----------------
-    do k = 1, 3
-      do i = 1, nsx
-        u_hm_map_save(i,k) = (-1.0)**(i+1)
-      end do
-    end do
-    tmp = 0.
-    call pressure_hm(u_hm_map_save, wsub_map, dudt_tmp, dwdt_tmp, tmp)
-    call adams_hm(u_hm_map_save,  wsub_map, dudt_tmp, dwdt_tmp, tmp, tmp2)
+    u_hm_map_save = 0.
     u_sub_map_save = 0.
-    u_hm_updated_map_save = u_hm_map_save
+    u_hm_updated_map_save = 0.
+    ! ----------------添加条带的初始场-----------------
+    ! do k = 1, 3
+    !   do i = 1, nsx
+    !     u_hm_map_save(i,k) = 1.0*(-1.0)**(i+1)
+    !   end do
+    ! end do
+    ! tmp = 0.
+    ! call pressure_hm(u_hm_map_save, wsub_map, dudt_tmp, dwdt_tmp, tmp)
+    ! call adams_hm(u_hm_map_save,  wsub_map, dudt_tmp, dwdt_tmp, tmp, tmp2)
+    ! u_sub_map_save = 0.
+    ! u_hm_updated_map_save = u_hm_map_save
     ! ------------------------------------------------
     do i = 1, nsx
       t_hm_map_save(i,:) = t0(:)
@@ -45,6 +45,10 @@ subroutine host_model_init()
       q_hm_map_save(i,:) = qv0(:)
       q_sub_map_save(i,:) = qv0(:)
     end do
+    
+    if (hm_only) then
+      call set_sin_x_sst_for_hm(t_hm_map_save)
+    end if
   end if
 
 end subroutine host_model_init
@@ -56,6 +60,21 @@ subroutine set_constant_sst_hm()
   sstxy = tabs_s - t00
 end subroutine set_constant_sst_hm
 
+
+subroutine set_sin_x_sst_for_hm(t_map)
+  use vars
+  implicit none
+  real, intent(inout) :: t_map(nsx, nzm)
+  real(8) pii
+  integer i,k
+
+  pii = atan2(0.d0,-1.d0)
+  do i = 1, nsx
+    do k = 1, 6
+      t_map(i,k) = t_map(i,k) - 0.0*cos(2.*pii*i/nsx) - 1.0*((-1.)**(i))
+    end do
+  end do
+end subroutine set_sin_x_sst_for_hm
 
 subroutine set_sin_x_sst()
   use vars, only: sstxy,t00
@@ -78,6 +97,26 @@ subroutine set_sin_x_sst()
   sstxy(1:nx, 1:ny) = sum(sstxy(:,:))/(nx*ny)
 end subroutine set_sin_x_sst
 
+subroutine set_sin_x_sst_stripe()
+  use vars, only: sstxy,t00
+  use params, only: tabs_s, delta_sst, ocean_type
+  use grid
+  implicit none
+  real(8) tmpx(nx), pii, lx
+  integer i,j
+  sstxy = tabs_s - t00
+  lx = float(nx_gl)*dx
+  do i = 1,nx
+    tmpx(i) = float(mod(rank,nsubdomains_x)*nx+i-1)*dx
+  end do
+  pii = atan2(0.d0,-1.d0)
+  do j=1,ny
+    do i=1,nx
+      sstxy(i,j) = tabs_s-delta_sst*cos(2.*pii*tmpx(i)/lx) - t00 + 1.0*((-1.0)**(rank+1))
+    end do
+  end do
+  sstxy(1:nx, 1:ny) = sum(sstxy(:,:))/(nx*ny)
+end subroutine set_sin_x_sst_stripe
 
 subroutine host_model_finalize()  !暂时不打算调用
   use vars
@@ -188,7 +227,7 @@ subroutine host_model_evolve( &
   dudt_hm = 0.0; dwdt_hm = 0.0
 
   ! 1) 浮力
-  call buoyancy_hm(tabs0_in, qv0_in, qn0_in, qp0_in, dwdt_hm)
+  ! call buoyancy_hm(tabs0_in, qv0_in, qn0_in, qp0_in, dwdt_hm)
 
   ! -------------------加个bubble------------------------------------------------------------------------------------
   
@@ -197,14 +236,18 @@ subroutine host_model_evolve( &
   ! end if
   call output_host_model_single_variable(t_hm_map, 't1', 't_after_bubble' , 'K')
   
-  ! do k = 1, nzm
-  !     do i = 1, nsx
-  !       tabs_map_hm(i,k) = t_hm_map(i,k) - gamaz(k)
-  !     end do   
-  ! end do
-  ! call buoyancy_hm(tabs_map_hm, qv0_in, qn0_in, qp0_in, dwdt_hm)
-  ! -------------------------------------------------------------------------------------------------------
   
+  ! -------------------------------------------------------------------------------------------------------
+  if (hm_only) then
+    call buoyancy_only_in_hm(t_hm_map, q_hm_map, dwdt_hm)
+  else
+    do k = 1, nzm
+        do i = 1, nsx
+          tabs_map_hm(i,k) = t_hm_map(i,k) - gamaz(k)
+        end do   
+    end do
+    call buoyancy_hm(tabs_map_hm, qv0_in, qn0_in, qp0_in, dwdt_hm)
+  end if
 
   tmp(:, :) = dwdt_hm(:,1:nzm)
   call output_host_model_single_variable(tmp, 'dwdt1', 'dwdt_after_buoyancy' , 'm/s2')
@@ -1044,7 +1087,7 @@ subroutine output_host_model(u0_in, t0_in, q0_in,  &
     print*, 'Rank=', rank, '*************begin output_host_model***************'
 
     filetype = '.bin2D'
-    filename='./OUT_3D/stripe_init/'//trim(case)//'_'//trim(caseid)//&
+    filename='./OUT_3D/T_stripe7/'//trim(case)//'_'//trim(caseid)//&
     filetype//sepchar
     if(nrestart.eq.0.and.notopened3D) then
         open(46,file=filename,status='unknown',form='unformatted')	
@@ -1246,7 +1289,7 @@ subroutine output_host_model_single_variable(u0_in, v_name,v_longname,v_unit)
     print*, 'Rank=', rank, '*************begin output_host_model***************'
 
     filetype = '.bin2D'
-    filename='./OUT_3D/stripe_init/'//trim(case)//'_'//trim(caseid)//&
+    filename='./OUT_3D/T_stripe7/'//trim(case)//'_'//trim(caseid)//&
     '_'//trim(name)//filetype//sepchar
     if(nrestart.eq.0.and.notopened3D) then
         open(46,file=filename,status='unknown',form='unformatted')	

@@ -132,7 +132,8 @@ do while(nstep.lt.nstop.and.nelapse.gt.0)
      ! Host model
      if(dompimmf) then
           if ((nstep .ge. hm_spinup_step) .and. (.not. wsub_inited)) then
-               call set_sin_x_sst()
+               call set_sin_x_sst_stripe()
+               ! call set_sin_x_sst()
                call host_model_init()
           end if
      end if
