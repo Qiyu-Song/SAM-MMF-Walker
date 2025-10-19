@@ -18,7 +18,7 @@ subroutine hm_couple_step()
    
 
     real, allocatable :: u0_map(:,:),  t0_map(:,:), q0_map(:,:)
-    real, allocatable :: u_out_map(:,:), v_out_map(:,:), t_out_map(:,:), q_out_map(:,:)
+    real, allocatable :: u_out_map(:,:), v_out_map(:,:), t_out_map(:,:), q_out_map(:,:), u_press_modify(:,:)
     real, allocatable :: w_out_map(:,:)
     real, allocatable :: dummy2d(:,:)
 
@@ -34,7 +34,7 @@ subroutine hm_couple_step()
                 tabs0_map(nsx, nzm), qv0_map(nsx, nzm),  &
                 qn0_map(nsx, nzm), qp0_map(nsx, nzm))
                 
-        allocate(u_out_map(nsx, nzm),  &
+        allocate(u_out_map(nsx, nzm), u_press_modify(nsx, nzm), &
                 t_out_map(nsx, nzm), q_out_map(nsx, nzm))
         allocate(w_out_map(nsx, nz))
     else
@@ -119,7 +119,7 @@ subroutine hm_couple_step()
                             t0_in=t0_map, q0_in=q0_map,                    &
                             tabs0_in = tabs0_map, qv0_in = qv0_map, qn0_in = qn0_map, qp0_in = qp0_map,   &
                             u_out_map=u_out_map,           &
-                            w_out_map=w_out_map, t_out_map=t_out_map, q_out_map=q_out_map )
+                            w_out_map=w_out_map, t_out_map=t_out_map, q_out_map=q_out_map, u_press_modify = u_press_modify )
         
         wsub_map(:, :)         = w_out_map(:, :)
 
@@ -147,6 +147,12 @@ subroutine hm_couple_step()
         call task_bscatter_float_map(0, dummy2d,  nzm, nsx, qg0_hm(1))
     end if
 
+    if (masterproc) then
+        call task_bscatter_float_map(0, u_press_modify, nzm, nsx, ug0_press_modify(1))
+    else
+        call task_bscatter_float_map(0, dummy2d,  nzm, nsx, ug0_press_modify(1))
+    end if
+
     
     !------------------------------------------------------------
     ! clean up
@@ -163,6 +169,7 @@ subroutine hm_couple_step()
         if (allocated(t_out_map))  deallocate(t_out_map)  
         if (allocated(q_out_map))  deallocate(q_out_map)  
         if (allocated(w_out_map))  deallocate(w_out_map)  
+        if (allocated(u_press_modify))  deallocate(u_press_modify)  
     else
         if (allocated(dummy2d))  deallocate(dummy2d)
     end if

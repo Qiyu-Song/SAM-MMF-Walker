@@ -244,6 +244,7 @@ real qp0_local_hm(nzm)
 real ug0_hm(nzm)
 real tg0_hm(nzm)
 real qg0_hm(nzm)
+real ug0_press_modify(nzm)
 
 real u_hm_map_save(nsx, nzm)
 real u_hm_updated_map_save(nsx, nzm)
@@ -257,5 +258,7 @@ integer :: hm_spinup_step
 logical :: could_hm_nudging = .false.
 logical :: nouvchatting = .false.
 logical :: hm_only = .false.
+
+real diffuse_intensity
 
 end module vars

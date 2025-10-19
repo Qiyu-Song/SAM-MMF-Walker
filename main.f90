@@ -132,8 +132,8 @@ do while(nstep.lt.nstop.and.nelapse.gt.0)
      ! Host model
      if(dompimmf) then
           if ((nstep .ge. hm_spinup_step) .and. (.not. wsub_inited)) then
-               call set_sin_x_sst_stripe()
-               ! call set_sin_x_sst()
+               ! call set_sin_x_sst_stripe()
+               call set_sin_x_sst()
                call host_model_init()
           end if
      end if
@@ -143,12 +143,18 @@ do while(nstep.lt.nstop.and.nelapse.gt.0)
           if(dompimmf) then
                if(mod(nstep, nstephostmodel).eq.0) then
                     call hm_couple_step()
+                    call modify_U_for_subdomain()
                     if (.not. could_hm_nudging) then
                          could_hm_nudging = .true.
                     end if
                end if
           end if
      end if
+
+     ! if (wsub_inited .and. dompimmf .and. ((nstep-hm_spinup_step) .ge. 30)) then
+     !      call set_sin_x_sst()  !后面的都用一般的sst,没有条带
+     ! end if
+
 
   ! Kuang Ensemble run: turn off mpi entering each loop (Song Qiyu, 2022)
   if(dompiensemble.or.dompimmf) dompi = .false.

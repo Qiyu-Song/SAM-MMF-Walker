@@ -3,7 +3,7 @@ module module_hostmodel
   use vars, only: rho, rhow, hm_step
   implicit none
   private
-  public :: host_model_init, host_model_finalize, host_model_evolve, nudging_hm, nudging_hm_nouv
+  public :: host_model_init, host_model_finalize, host_model_evolve, nudging_hm, nudging_hm_nouv, nudging_and_modify, modify_U_for_subdomain
   public :: set_constant_sst_hm, set_sin_x_sst, set_sin_x_sst_stripe
  
 
@@ -129,7 +129,7 @@ end subroutine host_model_finalize
 subroutine host_model_evolve( &
   u0_in, wsub_in, t0_in, q0_in,  &
   tabs0_in, qv0_in, qn0_in, qp0_in, &
-  u_out_map,  w_out_map, t_out_map, q_out_map)
+  u_out_map,  w_out_map, t_out_map, q_out_map, u_press_modify)
   use vars
   implicit none
   ! -------- 输入（不含 ghost） --------
@@ -148,13 +148,14 @@ subroutine host_model_evolve( &
   real, intent(out) :: w_out_map(nsx, nz)
   real, intent(out) :: t_out_map(nsx, nzm)
   real, intent(out) :: q_out_map(nsx, nzm)
+  real, intent(out) :: u_press_modify(nsx, nzm)
 
   ! -------- 局部 --------
   real :: dudt_hm(nsx, nzm),  dwdt_hm(nsx, nz)
   ! for advection of scalars
   real :: u1_hm_map(nsx, nzm),  w1_hm_map(nsx, nz)
   real :: p_phys(nsx, nzm)    ! 压力势（诊断用，可不输出）
-  real :: tmp(nsx, nzm), tmp1(nsx, nzm), tmp2(nsx, nzm)
+  real :: tmp(nsx, nzm), tmp1(nsx, nzm), tmp2(nsx, nzm), tmp_U(nsx, nzm)
   real :: u_hm_map(nsx, nzm),  w_hm_map(nsx, nz), t_hm_map(nsx, nzm), q_hm_map(nsx, nzm)
   real :: u_start_map(nsx, nzm), t_start_map(nsx, nzm), q_start_map(nsx, nzm)
   integer :: i, k
@@ -173,7 +174,9 @@ subroutine host_model_evolve( &
     t_start_map = t_hm_map
     q_start_map = q_hm_map
   else
-    if (.not. nouvchatting) then
+    if (nouvchatting) then
+      u_hm_map = u_hm_updated_map_save
+    else !全都通信的情况
       call face2center_U((u_hm_updated_map_save-u_hm_map_save),tmp1)
 
       call output_host_model_single_variable(u_hm_updated_map_save-u_hm_map_save, 'deltaU', 'u_hm_updated-u_hm' , 'm/s')
@@ -182,9 +185,15 @@ subroutine host_model_evolve( &
 
       call output_host_model_single_variable(tmp2, 'delta2U', 'modification_to_Uhm' , 'm/s')
 
-      u_hm_map = u_hm_updated_map_save
-      dudt_hm = tmp2/dt_hm
+      u_hm_map = u_hm_updated_map_save + tmp2
+      tmp_U = u_hm_map
+      
+      ! call rolling_mean(u_hm_map)
+      ! call output_host_model_single_variable(u_hm_map, 'u_smooth', 'u_after_rolling_mean' , 'm/s')
+      
+      dudt_hm = 0.0
       dwdt_hm = 0.0
+
       ! --------------------------------------------修正u,w------------------------------------------------------------
       call pressure_hm(u_hm_map, w_hm_map, &
                                 dudt_hm, dwdt_hm, p_phys)
@@ -194,7 +203,7 @@ subroutine host_model_evolve( &
       call output_host_model_single_variable(tmp, 'dwdt_R', 'dwdt_after_pressure_R' , 'm/s2')
       call output_host_model_single_variable(p_phys, 'p_phys_R', 'Pressure_Perturbation_R' , 'Pa')
 
-      ! 4) AB 时间推进
+      ! 时间推进
       call adams_hm(u_hm_map,  w_hm_map, dudt_hm, dwdt_hm, &
                       u1_hm_map, w1_hm_map)
 
@@ -203,16 +212,23 @@ subroutine host_model_evolve( &
       call output_host_model_single_variable(tmp, 'W_R', 'W_after_adams_R' , 'm/s')
 
       ! ------------------------------------------------------------------------------------------------------------------
-      
-      u_sub_map_save = u0_in
-    else
-      u_hm_map = u_hm_updated_map_save
+      call face2center_U((u_hm_map - tmp_U), u_press_modify)
+      call output_host_model_single_variable(u_press_modify, 'U_modify', 'U_back_to_subdomain' , 'm/s')
+      u_sub_map_save = u0_in + u_press_modify
     end if
 
     t_hm_map = t_hm_map_save + t0_in - t_sub_map_save
+    ! if (hm_step .gt. 8640) then
+    ! call rolling_mean(t_hm_map)
+    ! call output_host_model_single_variable(t_hm_map, 't_smooth', 't_after_rolling_mean' , 'K')
+    ! end if
     t_sub_map_save = t0_in
 
     q_hm_map = q_hm_map_save + q0_in - q_sub_map_save
+    ! if (hm_step .gt. 8640) then
+    ! call rolling_mean(q_hm_map)
+    ! call output_host_model_single_variable(q_hm_map, 'q_smooth', 'q_after_rolling_mean' , 'kg/kg')
+    ! end if
     q_sub_map_save = q0_in
 
     u_start_map = u_hm_map
@@ -269,6 +285,10 @@ subroutine host_model_evolve( &
   call output_host_model_single_variable(dudt_hm, 'dudt2', 'dudt_after_advect_mom' , 'm/s2')
   tmp(:, :) = dwdt_hm(:,1:nzm)
   call output_host_model_single_variable(tmp, 'dwdt2', 'dwdt_after_advect_mom' , 'm/s2')
+
+  call rolling_mean(u_hm_map)
+  call rolling_mean_upper_bound(u_hm_map)
+  call output_host_model_single_variable(u_hm_map, 'u_smooth', 'u_after_rolling_mean' , 'm/s')
 
   ! 3) 压力投影
   call pressure_hm(u_hm_map, w_hm_map, &
@@ -432,13 +452,8 @@ subroutine advect_mom_hm(u_hm_map, w_hm_map, dudt_hm, dwdt_hm)
     do i = 1, nsx
       ic = i + 1
       if (ic > nsx) ic = ic - nsx
-      !advect
-      ! if (u_hm_map(i,k) >= 0.0) then    
-      !   fu(i,k) =  u_hm_map(i,k) * u_hm_map(i,k)/dx_hm ! 从左（上游）
-      ! else
-      !   fu(i,k) = u_hm_map(i,k) * u_hm_map(ic,k)/dx_hm  ! 从右（上游）
-      ! end if
-      !advect2
+      
+      ! advect2
       ! if ((u_hm_map(i,k)+u_hm_map(ic,k)) >= 0.0) then
       !   fu(i,k) =  0.5*(u_hm_map(i,k)+u_hm_map(ic,k)) * u_hm_map(i,k)/dx_hm ! 从左（上游）
       ! else
@@ -976,11 +991,11 @@ if(donudging_tq.or.donudging_q) then
     end do
 endif
 
-! call t_stopf('nudging_hm')
 
 end subroutine nudging_hm
 
-subroutine nudging_hm_nouv()
+! 外加把host model的修正项传回subdomain
+subroutine nudging_and_modify()
 ! keep nudging terms constant in each host model time step
 	
 use vars
@@ -992,6 +1007,74 @@ real coef, coef1
 integer i,j,k
 	
 ! call t_startf ('nudging_hm')
+
+tnudge = 0.
+qnudge = 0.
+unudge = 0.
+vnudge = 0.
+
+coef = 1./dt_hm
+
+if(donudging_uv) then
+    do k=1,nzm
+      if(z(k).ge.nudging_uv_z1.and.z(k).le.nudging_uv_z2) then
+        unudge(k)=unudge(k) - (-ug0_hm(k))*coef + ug0_press_modify(k)/dt
+        vnudge(k)=vnudge(k) - (v0(k)-vg0(k))/tauls
+        do j=1,ny
+          do i=1,nx
+             dudt(i,j,k,na)=dudt(i,j,k,na)-(-ug0_hm(k))*coef + ug0_press_modify(k)/dt
+             dvdt(i,j,k,na)=dvdt(i,j,k,na)-(v0(k)-vg0(k))/tauls
+          end do
+        end do
+      end if
+    end do
+endif
+
+! no minus gamaz here since both t0_local_hm and tg0_hm include gamaz
+if(donudging_tq.or.donudging_t) then
+    coef1 = dtn / dt_hm
+    do k=1,nzm
+      if(z(k).ge.nudging_t_z1.and.z(k).le.nudging_t_z2) then
+        tnudge(k)=tnudge(k) -(-tg0_hm(k))*coef
+        do j=1,ny
+          do i=1,nx
+             t(i,j,k)=t(i,j,k)-(-tg0_hm(k))*coef1
+          end do
+        end do
+      end if
+    end do
+endif
+
+if(donudging_tq.or.donudging_q) then
+    coef1 = dtn / dt_hm
+    do k=1,nzm
+      if(z(k).ge.nudging_q_z1.and.z(k).le.nudging_q_z2) then
+        qnudge(k)=qnudge(k) -(-qg0_hm(k))*coef
+        do j=1,ny
+          do i=1,nx
+             micro_field(i,j,k,index_water_vapor)=micro_field(i,j,k,index_water_vapor)-(-qg0_hm(k))*coef1
+          end do
+        end do
+      end if
+    end do
+endif
+
+
+end subroutine nudging_and_modify
+
+
+! 只nudge T q
+subroutine nudging_hm_nouv()
+! keep nudging terms constant in each host model time step
+	
+use vars
+use params
+use microphysics, only: micro_field, index_water_vapor
+implicit none
+
+real coef, coef1
+integer i,j,k
+	
 
 tnudge = 0.
 qnudge = 0.
@@ -1044,7 +1127,6 @@ if(donudging_tq.or.donudging_q) then
     end do
 endif
 
-! call t_stopf('nudging_hm')
 
 end subroutine nudging_hm_nouv
 
@@ -1087,7 +1169,7 @@ subroutine output_host_model(u0_in, t0_in, q0_in,  &
     print*, 'Rank=', rank, '*************begin output_host_model***************'
 
     filetype = '.bin2D'
-    filename='./OUT_3D/T_stripe7/'//trim(case)//'_'//trim(caseid)//&
+    filename='./OUT_3D/tend_modified/'//trim(case)//'_'//trim(caseid)//&
     filetype//sepchar
     if(nrestart.eq.0.and.notopened3D) then
         open(46,file=filename,status='unknown',form='unformatted')	
@@ -1289,7 +1371,7 @@ subroutine output_host_model_single_variable(u0_in, v_name,v_longname,v_unit)
     print*, 'Rank=', rank, '*************begin output_host_model***************'
 
     filetype = '.bin2D'
-    filename='./OUT_3D/T_stripe7/'//trim(case)//'_'//trim(caseid)//&
+    filename='./OUT_3D/tend_modified/'//trim(case)//'_'//trim(caseid)//&
     '_'//trim(name)//filetype//sepchar
     if(nrestart.eq.0.and.notopened3D) then
         open(46,file=filename,status='unknown',form='unformatted')	
@@ -1331,7 +1413,7 @@ end subroutine output_host_model_single_variable
 
 
 
-subroutine compress3D_hm (f,nx,ny,nz,name, long_name, units)
+subroutine compress3D_hm(f,nx,ny,nz,name, long_name, units)
     implicit none
 
     integer nx,ny,nz
@@ -1510,5 +1592,146 @@ subroutine buoyancy_only_in_hm(t_hm_map, q_hm_map, dwdt_hm)
   end do
 
 end subroutine buoyancy_only_in_hm
+
+
+subroutine rolling_mean(u_map)
+    use vars
+    implicit none
+    real, intent(inout)   :: u_map(nsx,nzm)
+    real :: backup(nsx,nzm)
+    integer i,ic,ib
+    backup = u_map
+    do i=1,nsx
+      ic = i + 1
+      if (ic > nsx) ic = ic - nsx
+      ib = i - 1
+      if (ib < 1) ib = ib + nsx
+      u_map(i,:) = backup(i,:) + diffuse_intensity*(backup(ic,:) -2*backup(i,:) + backup(ib,:))
+    end do
+end subroutine rolling_mean
+
+
+subroutine rolling_mean_upper_bound(u_map)
+    use vars
+    implicit none
+    real, intent(inout)   :: u_map(nsx,nzm)
+    real :: backup(nsx,nzm)
+    integer i,ic,ib,k
+    backup = u_map
+    do k = nzm-2, nzm
+      do i=1,nsx
+        ic = i + 1
+        if (ic > nsx) ic = ic - nsx
+        ib = i - 1
+        if (ib < 1) ib = ib + nsx
+        u_map(i,k) = backup(i,k) + 0.23*(backup(ic,k) -2*backup(i,k) + backup(ib,k))
+      end do
+    end do
+end subroutine rolling_mean_upper_bound
+
+
+subroutine modify_U_for_subdomain()
+    use vars
+    implicit none
+    integer i,j,k
+
+    do k=1,nzm
+      do j=1,ny
+        do i=1,nx
+          u(i,j,k) = u(i,j,k)+ ug0_press_modify(k)
+        end do
+      end do
+    end do
+end subroutine modify_U_for_subdomain
+
+! ----------------------傅里叶变换消最高频------------------------------------------
+subroutine damp_highest_wavenumber(u_map)
+    use vars
+    implicit none
+
+    real, intent(inout) :: u_map(nsx, nzm)
+
+    complex, allocatable :: u_fft(:)  
+    real, allocatable :: temp_row(:)   
+    integer j, max_wavenumber_index
+  
+    allocate(u_fft(nsx))
+    allocate(temp_row(nsx))
+    
+    max_wavenumber_index = nsx / 2 + 1
+   
+    do j = 1, nzm
+        temp_row = u_map(:, j)
+
+        call dft_1d(temp_row, u_fft, nsx)
+        
+        u_fft(max_wavenumber_index) = cmplx(0.0, 0.0) 
+
+        call idft_1d(u_fft, u_map(:, j), nsx) 
+    end do
+
+    deallocate(u_fft)
+    deallocate(temp_row)
+
+end subroutine damp_highest_wavenumber
+
+
+subroutine dft_1d(x_in, x_out, N_size)
+    implicit none
+    integer, intent(in) :: N_size
+    real, intent(in)    :: x_in(N_size)
+    complex, intent(out) :: x_out(N_size)
+
+    integer n, k
+    real    :: arg
+    real    :: pi
+    pi = acos(-1.0)
+    
+    ! 外层循环：遍历输出频率 k (波数)
+    do k = 1, N_size
+        x_out(k) = cmplx(0.0, 0.0)
+        
+        ! 内层循环：遍历输入时间/空间点 n
+        do n = 1, N_size
+            ! 计算角度：-2 * pi * (k-1) * (n-1) / N
+            arg = -2.0 * pi * real( (k-1) * (n-1) ) / real(N_size)
+            x_out(k) = x_out(k) + x_in(n) * cmplx(cos(arg), sin(arg))
+
+        end do
+    end do
+end subroutine dft_1d
+
+
+
+subroutine idft_1d(x_in_complex, x_out_real, N_size)
+    implicit none
+    integer, intent(in) :: N_size
+    complex, intent(in) :: x_in_complex(N_size)
+    real, intent(out)   :: x_out_real(N_size)
+
+    integer n, k
+    real    :: arg
+    complex :: sum_val
+    real    :: pi
+    pi = acos(-1.0)
+
+
+    do n = 1, N_size
+        sum_val = cmplx(0.0, 0.0)
+        
+        ! 内层循环：遍历频率 k
+        do k = 1, N_size
+            ! IDFT 的角度是正号：2 * pi * (k-1) * (n-1) / N
+            arg = 2.0 * pi * real( (k-1) * (n-1) ) / real(N_size)
+            
+            ! IDFT 定义：Xn = (1/N) * SUM [ Xk * e^(i * arg) ]
+            sum_val = sum_val + x_in_complex(k) * cmplx(cos(arg), sin(arg))
+
+        end do
+        
+        ! IDFT 还需要除以 N
+        x_out_real(n) = real(sum_val) / real(N_size)
+    end do
+end subroutine idft_1d
 
 end module module_hostmodel
