@@ -62,7 +62,7 @@ NAMELIST /KUANG_PARAMS/ dompiensemble, &
                 dosavemultirestart, nrestartstart,&
                 donoisywave, noiselevel, &
                 dompimmf, nstephostmodel, hm_spinup_step, &
-                nouvchatting, hm_only, diffuse_intensity
+                nouvchatting, hm_only, diffuse_intensity,do_3step_adams,hm_subcycle
 
 
                 
@@ -263,6 +263,7 @@ end if
         if(dompimmf) then
           dx_hm = dx * nx
           dt_hm = dt * nstephostmodel
+          dt_hm_subcycle = dt_hm / hm_subcycle
           if(masterproc) then
             write(*,*) '*********************************************************'
             write(*,*) '  Using the Kuang_Lab Multi-scale Modeling Framework'

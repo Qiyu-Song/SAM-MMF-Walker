@@ -202,5 +202,6 @@ real ttend_wavenoise(nzm),qtend_wavenoise(nzm)
 integer, parameter :: nsx = nsubdomains_x
 real dx_hm
 real dt_hm
+real dt_hm_subcycle
 
 end module grid

@@ -1,5 +1,5 @@
 module module_hostmodel
-  use grid, only: nsx, nzm, nz, adz, adzw, dz, dx_hm, dt_hm
+  use grid, only: nsx, nzm, nz, adz, adzw, dz, dx_hm, dt_hm, dt_hm_subcycle
   use vars, only: rho, rhow, hm_step
   implicit none
   private
@@ -27,6 +27,8 @@ subroutine host_model_init()
     u_hm_map_save = 0.
     u_sub_map_save = 0.
     u_hm_updated_map_save = 0.
+    dudt_hm_hist = 0.
+    dwdt_hm_hist = 0.
     ! ----------------添加条带的初始场-----------------
     ! do k = 1, 3
     !   do i = 1, nsx
@@ -160,6 +162,8 @@ subroutine host_model_evolve( &
   real :: u_start_map(nsx, nzm), t_start_map(nsx, nzm), q_start_map(nsx, nzm)
   integer :: i, k
   real :: tabs_map_hm(nsx, nzm)
+  logical :: do_3step_adams_tmp
+  integer :: icyc
 
   ! 拷贝初值
   
@@ -179,11 +183,11 @@ subroutine host_model_evolve( &
     else !全都通信的情况
       call face2center_U((u_hm_updated_map_save-u_hm_map_save),tmp1)
 
-      call output_host_model_single_variable(u_hm_updated_map_save-u_hm_map_save, 'deltaU', 'u_hm_updated-u_hm' , 'm/s')
+      call output_host_model_single_variable(u_hm_updated_map_save-u_hm_map_save, 'deltaU', 'u_hm_updated-u_hm' , 'm/s', 0)
 
       call center2face_U((u0_in-u_sub_map_save-tmp1), tmp2)
 
-      call output_host_model_single_variable(tmp2, 'delta2U', 'modification_to_Uhm' , 'm/s')
+      call output_host_model_single_variable(tmp2, 'delta2U', 'modification_to_Uhm' , 'm/s', 0)
 
       u_hm_map = u_hm_updated_map_save + tmp2
       tmp_U = u_hm_map
@@ -195,25 +199,27 @@ subroutine host_model_evolve( &
       dwdt_hm = 0.0
 
       ! --------------------------------------------修正u,w------------------------------------------------------------
+      do_3step_adams_tmp = do_3step_adams
+      do_3step_adams = .false.
       call pressure_hm(u_hm_map, w_hm_map, &
                                 dudt_hm, dwdt_hm, p_phys)
 
-      call output_host_model_single_variable(dudt_hm, 'dudt_R', 'dudt_after_pressure_R' , 'm/s2')
+      call output_host_model_single_variable(dudt_hm, 'dudt_R', 'dudt_after_pressure_R' , 'm/s2', 0)
       tmp(:, :) = dwdt_hm(:,1:nzm)
-      call output_host_model_single_variable(tmp, 'dwdt_R', 'dwdt_after_pressure_R' , 'm/s2')
-      call output_host_model_single_variable(p_phys, 'p_phys_R', 'Pressure_Perturbation_R' , 'Pa')
+      call output_host_model_single_variable(tmp, 'dwdt_R', 'dwdt_after_pressure_R' , 'm/s2', 0)
+      call output_host_model_single_variable(p_phys, 'p_phys_R', 'Pressure_Perturbation_R' , 'Pa', 0)
 
       ! 时间推进
       call adams_hm(u_hm_map,  w_hm_map, dudt_hm, dwdt_hm, &
                       u1_hm_map, w1_hm_map)
 
-      call output_host_model_single_variable(u_hm_map, 'U_R', 'U_after_adams_R' , 'm/s')
+      call output_host_model_single_variable(u_hm_map, 'U_R', 'U_after_adams_R' , 'm/s', 0)
       tmp(:, :) = w_hm_map(:,1:nzm)
-      call output_host_model_single_variable(tmp, 'W_R', 'W_after_adams_R' , 'm/s')
-
+      call output_host_model_single_variable(tmp, 'W_R', 'W_after_adams_R' , 'm/s', 0)
+      do_3step_adams = do_3step_adams_tmp
       ! ------------------------------------------------------------------------------------------------------------------
       call face2center_U((u_hm_map - tmp_U), u_press_modify)
-      call output_host_model_single_variable(u_press_modify, 'U_modify', 'U_back_to_subdomain' , 'm/s')
+      call output_host_model_single_variable(u_press_modify, 'U_modify', 'U_back_to_subdomain' , 'm/s', 0)
       u_sub_map_save = u0_in + u_press_modify
     end if
 
@@ -240,80 +246,90 @@ subroutine host_model_evolve( &
     ! call output_host_model_single_variable(u_hm_map, 'U00', 'U_after_1st_interpolation' , 'm/s')
   end if
 
-  dudt_hm = 0.0; dwdt_hm = 0.0
 
-  ! 1) 浮力
-  ! call buoyancy_hm(tabs0_in, qv0_in, qn0_in, qp0_in, dwdt_hm)
+  !----------------------------------------------------------------------------------
+  do icyc = 1,hm_subcycle
 
-  ! -------------------加个bubble------------------------------------------------------------------------------------
-  
-  ! if (hm_step.le.20) then
-  !   call hot_bubble(hm_step, t_hm_map)
-  ! end if
-  call output_host_model_single_variable(t_hm_map, 't1', 't_after_bubble' , 'K')
-  
-  
-  ! -------------------------------------------------------------------------------------------------------
-  if (hm_only) then
-    call buoyancy_only_in_hm(t_hm_map, q_hm_map, dwdt_hm)
-  else
-    do k = 1, nzm
-        do i = 1, nsx
-          tabs_map_hm(i,k) = t_hm_map(i,k) - gamaz(k)
-        end do   
-    end do
-    call buoyancy_hm(tabs_map_hm, qv0_in, qn0_in, qp0_in, dwdt_hm)
-  end if
+    dudt_hm = 0.0; dwdt_hm = 0.0
 
-  tmp(:, :) = dwdt_hm(:,1:nzm)
-  call output_host_model_single_variable(tmp, 'dwdt1', 'dwdt_after_buoyancy' , 'm/s2')
-  call output_host_model_single_variable(qv0_in, 'qv0in1', 'qv0_in_for_buoyancy' , 'kg/kg')
-  call output_host_model_single_variable(qp0_in, 'qp0in1', 'qp0_in_for_buoyancy' , 'kg/kg')
-  call output_host_model_single_variable(qn0_in, 'qn0in1', 'qn0_in_for_buoyancy' , 'kg/kg')
-  call output_host_model_single_variable(tabs0_in, 'tabs0in1', 'tabs0_in_for_buoyancy' , 'K')
+    ! 1) 浮力
+    ! call buoyancy_hm(tabs0_in, qv0_in, qn0_in, qp0_in, dwdt_hm)
 
-  ! 1-1) damping
-  call damping_hm(u_hm_map, w_hm_map, dudt_hm, dwdt_hm)
-  call output_host_model_single_variable(dudt_hm, 'dudt_dam', 'dudt_after_damping' , 'm/s2')
-  tmp(:, :) = dwdt_hm(:,1:nzm)
-  call output_host_model_single_variable(tmp, 'dwdt_dam', 'dwdt_after_damping' , 'm/s2')
+    ! -------------------加个bubble------------------------------------------------------------------------------------
+    
+    ! if (hm_step.le.20) then
+    !   call hot_bubble(hm_step, t_hm_map)
+    ! end if
+    call output_host_model_single_variable(t_hm_map, 't1', 't_after_bubble' , 'K', icyc)
+    
+    
+    ! -------------------------------------------------------------------------------------------------------
+    if (hm_only) then
+      call buoyancy_only_in_hm(t_hm_map, q_hm_map, dwdt_hm)
+    else
+      do k = 1, nzm
+          do i = 1, nsx
+            tabs_map_hm(i,k) = t_hm_map(i,k) - gamaz(k)
+          end do   
+      end do
+      call buoyancy_hm(tabs_map_hm, qv0_in, qn0_in, qp0_in, dwdt_hm)
+    end if
 
-  ! 2) 动量平流（2D，二阶中心）
-  call advect_mom_hm(u_hm_map,  w_hm_map, &
-                     dudt_hm, dwdt_hm)
+    tmp(:, :) = dwdt_hm(:,1:nzm)
+    call output_host_model_single_variable(tmp, 'dwdt1', 'dwdt_after_buoyancy' , 'm/s2', icyc)
+    call output_host_model_single_variable(qv0_in, 'qv0in1', 'qv0_in_for_buoyancy' , 'kg/kg', icyc)
+    call output_host_model_single_variable(qp0_in, 'qp0in1', 'qp0_in_for_buoyancy' , 'kg/kg', icyc)
+    call output_host_model_single_variable(qn0_in, 'qn0in1', 'qn0_in_for_buoyancy' , 'kg/kg', icyc)
+    call output_host_model_single_variable(tabs0_in, 'tabs0in1', 'tabs0_in_for_buoyancy' , 'K', icyc)
 
-  call output_host_model_single_variable(dudt_hm, 'dudt2', 'dudt_after_advect_mom' , 'm/s2')
-  tmp(:, :) = dwdt_hm(:,1:nzm)
-  call output_host_model_single_variable(tmp, 'dwdt2', 'dwdt_after_advect_mom' , 'm/s2')
+    ! 1-1) damping
+    call damping_hm(u_hm_map, w_hm_map, dudt_hm, dwdt_hm)
+    call output_host_model_single_variable(dudt_hm, 'dudt_dam', 'dudt_after_damping' , 'm/s2', icyc)
+    tmp(:, :) = dwdt_hm(:,1:nzm)
+    call output_host_model_single_variable(tmp, 'dwdt_dam', 'dwdt_after_damping' , 'm/s2', icyc)
 
-  call rolling_mean(u_hm_map)
-  call rolling_mean_upper_bound(u_hm_map)
-  call output_host_model_single_variable(u_hm_map, 'u_smooth', 'u_after_rolling_mean' , 'm/s')
+    call rolling_mean(u_hm_map)
+    call rolling_mean_upper_bound(u_hm_map)
+    ! call rolling_mean_bottom(u_hm_map)
+    call output_host_model_single_variable(u_hm_map, 'u_smooth', 'u_after_rolling_mean' , 'm/s', icyc)
 
-  ! 3) 压力投影
-  call pressure_hm(u_hm_map, w_hm_map, &
-                            dudt_hm, dwdt_hm, p_phys)
 
-  call output_host_model_single_variable(dudt_hm, 'dudt3', 'dudt_after_pressure' , 'm/s2')
-  tmp(:, :) = dwdt_hm(:,1:nzm)
-  call output_host_model_single_variable(tmp, 'dwdt3', 'dwdt_after_pressure' , 'm/s2')
-  call output_host_model_single_variable(p_phys, 'p_phys3', 'Pressure_Perturbation' , 'Pa')
+    ! 2) 动量平流（2D，二阶中心）
+    call advect_mom_hm(u_hm_map,  w_hm_map, &
+                      dudt_hm, dwdt_hm)
 
-  ! 4) AB 时间推进
-  call adams_hm(u_hm_map, w_hm_map, dudt_hm,dwdt_hm, &
-                  u1_hm_map, w1_hm_map)
+    call output_host_model_single_variable(dudt_hm, 'dudt2', 'dudt_after_advect_mom' , 'm/s2', icyc)
+    tmp(:, :) = dwdt_hm(:,1:nzm)
+    call output_host_model_single_variable(tmp, 'dwdt2', 'dwdt_after_advect_mom' , 'm/s2', icyc)
 
-  call output_host_model_single_variable(u_hm_map, 'U4', 'U_after_adams' , 'm/s')
+    
 
-  tmp(:, :) = w_hm_map(:,1:nzm)
-  call output_host_model_single_variable(tmp, 'W4', 'W_after_adams' , 'm/s')
-  call output_host_model_single_variable(u1_hm_map, 'U41', 'U1_after_adams' , 'm/s')
+    ! 3) 压力投影
+    call pressure_hm(u_hm_map, w_hm_map, &
+                              dudt_hm, dwdt_hm, p_phys)
 
-  tmp(:, :) = w1_hm_map(:,1:nzm)
-  call output_host_model_single_variable(tmp, 'W41', 'W1_after_adams' , 'm/s')
-  ! 5) 标量平流（上风，正定）
-  call advect_scalars_hm(t_hm_map, u1_hm_map, w1_hm_map)
-  call advect_scalars_hm(q_hm_map, u1_hm_map, w1_hm_map)
+    call output_host_model_single_variable(dudt_hm, 'dudt3', 'dudt_after_pressure' , 'm/s2', icyc)
+    tmp(:, :) = dwdt_hm(:,1:nzm)
+    call output_host_model_single_variable(tmp, 'dwdt3', 'dwdt_after_pressure' , 'm/s2', icyc)
+    call output_host_model_single_variable(p_phys, 'p_phys3', 'Pressure_Perturbation' , 'Pa', icyc)
+
+    ! 4) AB 时间推进
+    call adams_hm(u_hm_map, w_hm_map, dudt_hm,dwdt_hm, &
+                    u1_hm_map, w1_hm_map)
+
+    call output_host_model_single_variable(u_hm_map, 'U4', 'U_after_adams' , 'm/s', icyc)
+
+    tmp(:, :) = w_hm_map(:,1:nzm)
+    call output_host_model_single_variable(tmp, 'W4', 'W_after_adams' , 'm/s', icyc)
+    call output_host_model_single_variable(u1_hm_map, 'U41', 'U1_after_adams' , 'm/s', icyc)
+
+    tmp(:, :) = w1_hm_map(:,1:nzm)
+    call output_host_model_single_variable(tmp, 'W41', 'W1_after_adams' , 'm/s', icyc)
+    ! 5) 标量平流（上风，正定）
+    call advect_scalars_hm(t_hm_map, u1_hm_map, w1_hm_map)
+    call advect_scalars_hm(q_hm_map, u1_hm_map, w1_hm_map)
+
+  end do
 
   u_hm_updated_map_save = u_hm_map
 
@@ -534,15 +550,15 @@ end subroutine advect_mom_hm
 
 !================== 压力投影 ==================
 subroutine pressure_hm(u_hm_map, w_hm_map,  &
-                                dudt_hm,  dwdt_hm, p_phys)
+                                dudt_hm, dwdt_hm, p_phys)
   use, intrinsic :: iso_fortran_env, only: real64
+  use vars, only: do_3step_adams, dudt_hm_hist, dwdt_hm_hist
   implicit none
 
   real, intent(in)    :: u_hm_map(1:nsx, nzm)
   real, intent(in)    :: w_hm_map(1:nsx, nz)
 
   
-
   real, intent(inout) :: dudt_hm(nsx, nzm),  dwdt_hm(nsx, nz)
 
   real, intent(out)   :: p_phys(nsx, nzm)
@@ -566,19 +582,22 @@ subroutine pressure_hm(u_hm_map, w_hm_map,  &
 
 
   ! --------- AB 系数（沿用 adams_hm 的阶段，但此处还未旋转历史，所以为 hm_step+1）---------
-  ! stage = min(3, hm_step + 1)
-  ! select case(stage)
-  ! case (1)
-  !    atc = 1.0 ; btc = 0.0         ; ctc = 0.0
-  ! case (2)
-  !    atc = 1.5 ; btc = -0.5        ; ctc = 0.0
-  ! case default
-  !    atc = 23.0/12.0 ; btc = -16.0/12.0 ; ctc = 5.0/12.0
-  ! end select
+  if (do_3step_adams) then
+    stage = min(3, hm_step + 1)
+    select case(stage)
+    case (1)
+      atc = 1.0 ; btc = 0.0         ; ctc = 0.0
+    case (2)
+      atc = 1.5 ; btc = -0.5        ; ctc = 0.0
+    case default
+      atc = 23.0/12.0 ; btc = -16.0/12.0 ; ctc = 5.0/12.0
+    end select
 
-  ! dta  = 1.0/dt_hm/atc
-  ! btat = btc/atc
-  ! ctat = ctc/atc
+    dta  = 1.0/dt_hm_subcycle/atc
+    btat = btc/atc
+    ctat = ctc/atc
+  end if
+
   rdx  = 1.0/dx_hm
 
   ! --------- RHS (press_rhs) — 2D(x,z) 与 SAM 一致的形式 ---------
@@ -591,18 +610,20 @@ subroutine pressure_hm(u_hm_map, w_hm_map,  &
       ip = i + 1; if (ip > nsx) ip = ip-nsx   
 
       ! 有历史几步加速度信息时
-      ! rhs(i,k) = &
-      !   ( rdx*(u_hm_map(ip,k) - u_hm_map(i,k)) + ( w_hm_map(i,k+1)*rup - w_hm_map(i,k)*rdn ) )*dta  &
-      ! + ( rdx*(dudt_hm(ip,k) - dudt_hm(i,k)) + ( dwdt_hm(i,k+1)*rup - dwdt_hm(i,k)*rdn ) )  &
-      ! + btat*( rdx*(dudt_hm_hist(ip,k,1) - dudt_hm_hist(i,k,1))  &
-      !        + ( dwdt_hm_hist(i,k+1,1)*rup - dwdt_hm_hist(i,k,1)*rdn ) )              &
-      ! + ctat*( rdx*(dudt_hm_hist(ip,k,2) - dudt_hm_hist(i,k,2))  &
-      !        + ( dwdt_hm_hist(i,k+1,2)*rup - dwdt_hm_hist(i,k,2)*rdn ) )
+      if (do_3step_adams) then
+        rhs(i,k) = &
+          ( rdx*(u_hm_map(ip,k) - u_hm_map(i,k)) + ( w_hm_map(i,k+1)*rup - w_hm_map(i,k)*rdn ) )*dta  &
+        + ( rdx*(dudt_hm(ip,k) - dudt_hm(i,k)) + ( dwdt_hm(i,k+1)*rup - dwdt_hm(i,k)*rdn ) )  &
+        + btat*( rdx*(dudt_hm_hist(ip,k,1) - dudt_hm_hist(i,k,1))  &
+              + ( dwdt_hm_hist(i,k+1,1)*rup - dwdt_hm_hist(i,k,1)*rdn ) )              &
+        + ctat*( rdx*(dudt_hm_hist(ip,k,2) - dudt_hm_hist(i,k,2))  &
+              + ( dwdt_hm_hist(i,k+1,2)*rup - dwdt_hm_hist(i,k,2)*rdn ) )
+      else
+        rhs(i,k) = &
+          ( rdx*(u_hm_map(ip,k) - u_hm_map(i,k)) + ( w_hm_map(i,k+1)*rup - w_hm_map(i,k)*rdn ) ) /dt_hm_subcycle  &
+        + ( rdx*(dudt_hm(ip,k) - dudt_hm(i,k)) + ( dwdt_hm(i,k+1)*rup - dwdt_hm(i,k)*rdn ) )
+      end if 
 
-      rhs(i,k) = &
-        ( rdx*(u_hm_map(ip,k) - u_hm_map(i,k)) + ( w_hm_map(i,k+1)*rup - w_hm_map(i,k)*rdn ) ) /dt_hm  &
-      + ( rdx*(dudt_hm(ip,k) - dudt_hm(i,k)) + ( dwdt_hm(i,k+1)*rup - dwdt_hm(i,k)*rdn ) )
-      
     end do
   end do
   ! --------- end RHS ---------   
@@ -686,7 +707,8 @@ end subroutine pressure_hm
 
 
 !================== Adams–Bashforth 时间推进 ==================
-subroutine adams_hm(u, w, dudt_hm, dwdt_hm, u1, w1)
+subroutine adams_hm(u, w, dudt_hm, dwdt_hm,u1, w1)
+  use vars, only: do_3step_adams, dudt_hm_hist, dwdt_hm_hist
   implicit none
   real, intent(inout) :: u(nsx, nzm), w(nsx, nz)
   real, intent(in)    :: dudt_hm(nsx, nzm),  dwdt_hm(nsx, nz)
@@ -698,46 +720,44 @@ subroutine adams_hm(u, w, dudt_hm, dwdt_hm, u1, w1)
 
   hm_step = hm_step + 1
 
-  ! 有历史几步加速度信息时
-  ! if (hm_step == 1) then
-  !   at=1.0; bt=0.0; ct=0.0
-  ! else if (hm_step == 2) then
-  !   at=1.5; bt=-0.5; ct=0.0
-  ! else
-  !   at=23.0/12.0; bt=-16.0/12.0; ct=5.0/12.0
-  ! end if
-
-  ! do k=1,nzm; do i=1,nsx
-  !   dudt_hm_hist(i,k,3) = dudt_hm_hist(i,k,2)
-  !   dudt_hm_hist(i,k,2) = dudt_hm_hist(i,k,1)
-  !   dudt_hm_hist(i,k,1) = dudt_hm(i,k)
-  !   dvdt_hm_hist(i,k,3) = dvdt_hm_hist(i,k,2)
-  !   dvdt_hm_hist(i,k,2) = dvdt_hm_hist(i,k,1)
-  !   dvdt_hm_hist(i,k,1) = dvdt_hm(i,k)
-  ! end do; end do
-  ! do k=1,nz; do i=1,nsx
-  !   dwdt_hm_hist(i,k,3) = dwdt_hm_hist(i,k,2)
-  !   dwdt_hm_hist(i,k,2) = dwdt_hm_hist(i,k,1)
-  !   dwdt_hm_hist(i,k,1) = dwdt_hm(i,k)
-  ! end do; end do
-
-  ! do k=1,nzm; do i=1,nsx
-  !   u(i,k) = u(i,k) + dt_hm*( at*dudt_hm_hist(i,k,1) + bt*dudt_hm_hist(i,k,2) + ct*dudt_hm_hist(i,k,3) )
-  !   v(i,k) = v(i,k) + dt_hm*( at*dvdt_hm_hist(i,k,1) + bt*dvdt_hm_hist(i,k,2) + ct*dvdt_hm_hist(i,k,3) )
-  !   w(i,k) = w(i,k) + dt_hm*( at*dwdt_hm_hist(i,k,1) + bt*dwdt_hm_hist(i,k,2) + ct*dwdt_hm_hist(i,k,3) )  !原代码只更新到nzm
-  ! end do; end do
-
   u1(:,:) = u(:,:)
   w1(:,:) = w(:,:)
 
-  do k=1,nzm; do i=1,nsx
-    u(i,k) = u1(i,k) + dt_hm*dudt_hm(i,k) 
-    w(i,k) = w1(i,k) + dt_hm*dwdt_hm(i,k)
-  end do; end do
-  
+  if (do_3step_adams) then
+    if (hm_step == 1) then
+      at=1.0; bt=0.0; ct=0.0
+    else if (hm_step == 2) then
+      at=1.5; bt=-0.5; ct=0.0
+    else
+      at=23.0/12.0; bt=-16.0/12.0; ct=5.0/12.0
+    end if
+
+    do k=1,nzm; do i=1,nsx
+      dudt_hm_hist(i,k,3) = dudt_hm_hist(i,k,2)
+      dudt_hm_hist(i,k,2) = dudt_hm_hist(i,k,1)
+      dudt_hm_hist(i,k,1) = dudt_hm(i,k)
+    end do; end do
+    do k=1,nz; do i=1,nsx
+      dwdt_hm_hist(i,k,3) = dwdt_hm_hist(i,k,2)
+      dwdt_hm_hist(i,k,2) = dwdt_hm_hist(i,k,1)
+      dwdt_hm_hist(i,k,1) = dwdt_hm(i,k)
+    end do; end do
+
+    do k=1,nzm; do i=1,nsx
+      u(i,k) = u1(i,k) + dt_hm_subcycle*( at*dudt_hm_hist(i,k,1) + bt*dudt_hm_hist(i,k,2) + ct*dudt_hm_hist(i,k,3) )
+      w(i,k) = w1(i,k) + dt_hm_subcycle*( at*dwdt_hm_hist(i,k,1) + bt*dwdt_hm_hist(i,k,2) + ct*dwdt_hm_hist(i,k,3) )  !原代码只更新到nzm
+    end do; end do
+
+  else
+    do k=1,nzm; do i=1,nsx
+      u(i,k) = u1(i,k) + dt_hm_subcycle*dudt_hm(i,k) 
+      w(i,k) = w1(i,k) + dt_hm_subcycle*dwdt_hm(i,k)
+    end do; end do
+  end if
+    
   ! compute time averaged velocties for second-order advection of scalars:
-  dtdx = dt_hm/dx_hm
-  dtdz = dt_hm/dz
+  dtdx = dt_hm_subcycle/dx_hm
+  dtdz = dt_hm_subcycle/dz
   a1 = 0.5
   a2 = 0.5
   if(hm_step.eq.1) then
@@ -1169,7 +1189,7 @@ subroutine output_host_model(u0_in, t0_in, q0_in,  &
     print*, 'Rank=', rank, '*************begin output_host_model***************'
 
     filetype = '.bin2D'
-    filename='./OUT_3D/tend_modified/'//trim(case)//'_'//trim(caseid)//&
+    filename='./OUT_3D/300d_result/'//trim(case)//'_'//trim(caseid)//&
     filetype//sepchar
     if(nrestart.eq.0.and.notopened3D) then
         open(46,file=filename,status='unknown',form='unformatted')	
@@ -1334,13 +1354,15 @@ end subroutine output_host_model
 
 
 
-subroutine output_host_model_single_variable(u0_in, v_name,v_longname,v_unit)
+subroutine output_host_model_single_variable(u0_in, v_name,v_longname,v_unit,icyc)
 	
     use vars
+    use params,only: nstephostmodel
 
     implicit none
     real, intent(in) :: u0_in(nsx, nzm)
     character(*), intent(in) :: v_name, v_longname, v_unit
+    integer, intent(in) :: icyc
     character *120 filename
     character *80 long_name
     character *8 name
@@ -1363,7 +1385,7 @@ subroutine output_host_model_single_variable(u0_in, v_name,v_longname,v_unit)
     sepchar=""
 
     write(rankchar,'(i4)') 1 !nsubdomains
-    write(timechar,'(i10)') nstep
+    write(timechar,'(i10)') nstep + icyc/hm_subcycle*nstephostmodel
     do k=1,11-lenstr(timechar)-1
     timechar(k:k)='0'
     end do
@@ -1371,7 +1393,7 @@ subroutine output_host_model_single_variable(u0_in, v_name,v_longname,v_unit)
     print*, 'Rank=', rank, '*************begin output_host_model***************'
 
     filetype = '.bin2D'
-    filename='./OUT_3D/tend_modified/'//trim(case)//'_'//trim(caseid)//&
+    filename='./OUT_3D/300d_result/'//trim(case)//'_'//trim(caseid)//&
     '_'//trim(name)//filetype//sepchar
     if(nrestart.eq.0.and.notopened3D) then
         open(46,file=filename,status='unknown',form='unformatted')	
@@ -1389,7 +1411,7 @@ subroutine output_host_model_single_variable(u0_in, v_name,v_longname,v_unit)
     end do
     write(46) real(dx_hm,4)  
     write(46) real(dy,4)
-    write(46) real(float(nstep)*dt/(3600.*24.)+day0,4)
+    write(46) real(float(nstep + icyc/hm_subcycle*nstephostmodel)*dt/(3600.*24.)+day0,4)
 
   
     nfields1_hm=nfields1_hm+1
@@ -1594,21 +1616,103 @@ subroutine buoyancy_only_in_hm(t_hm_map, q_hm_map, dwdt_hm)
 end subroutine buoyancy_only_in_hm
 
 
+subroutine rolling_mean_sgs(u_map,icyc)
+    use vars
+    implicit none
+    integer, intent(in)   :: icyc
+    real, intent(inout)   :: u_map(nsx,nzm)
+    real :: backup(nsx, nzm)        ! 原始速度场的备份
+    real :: tk_local(nsx, nzm)      ! 局部的扩散强度 (未缩放)
+    
+    real :: tk_mean_k(nzm)          ! tk_local 在每层 k 上的平均值
+    real :: tk_stddev_k(nzm)        ! tk_local 在每层 k 上的标准差
+    
+    integer :: i, k
+    integer :: ic, ib
+    
+    real :: u_i, u_ic, u_ib
+    real :: u_local_mean, u_local_mean_abs 
+    real :: u_local_variance ! 局部方差
+    real :: u_local_stddev   ! 局部标准差
+
+    backup = u_map 
+
+    do k = 1, nzm
+        do i = 1, nsx
+            ic = i + 1
+            if (ic > nsx) ic = ic - nsx
+            ib = i - 1
+            if (ib < 1) ib = ib + nsx
+            
+            u_i  = backup(i, k)
+            u_ic = backup(ic, k)
+            u_ib = backup(ib, k)
+            u_local_mean = (u_ib + u_i + u_ic) / 3.0
+            u_local_mean_abs = (abs(u_ib) + abs(u_i) + abs(u_ic)) / 3.0
+            u_local_variance = ( (u_ib - u_local_mean)**2 + &
+                                 (u_i  - u_local_mean)**2 + &
+                                 (u_ic - u_local_mean)**2 ) / 3.0
+                                 
+            u_local_stddev = sqrt(u_local_variance)
+            if (abs(u_local_mean) < 1.0e-6) then
+                tk_local(i, k) = u_local_variance 
+            else
+                tk_local(i, k) = u_local_variance / abs(u_local_mean_abs)
+                ! tk_local(i, k) = u_local_variance / abs(u_local_mean)
+            end if
+            tk_local(i, k) = max(0.1, tk_local(i, k))
+            ! tk_local(i, k) = min(0.01/diffuse_intensity, tk_local(i, k))
+        end do
+    end do
+
+    call output_host_model_single_variable(tk_local, 'tk', 'tk_local' , '1', icyc)
+
+    do i=1,nsx
+      do k = 1, nzm
+        ic = i + 1
+        if (ic > nsx) ic = ic - nsx
+        ib = i - 1
+        if (ib < 1) ib = ib + nsx
+        u_map(i,:) = backup(i,:) + tk_local(i, k)*min(diffuse_intensity,10.0)*(backup(ic,:) -2*backup(i,:) + backup(ib,:))
+      end do
+    end do
+end subroutine rolling_mean_sgs
+
 subroutine rolling_mean(u_map)
     use vars
     implicit none
     real, intent(inout)   :: u_map(nsx,nzm)
     real :: backup(nsx,nzm)
-    integer i,ic,ib
+    integer i,ic,ib,k
     backup = u_map
-    do i=1,nsx
-      ic = i + 1
-      if (ic > nsx) ic = ic - nsx
-      ib = i - 1
-      if (ib < 1) ib = ib + nsx
-      u_map(i,:) = backup(i,:) + diffuse_intensity*(backup(ic,:) -2*backup(i,:) + backup(ib,:))
+    do k = 1,nzm
+      do i=1,nsx
+        ic = i + 1
+        if (ic > nsx) ic = ic - nsx
+        ib = i - 1
+        if (ib < 1) ib = ib + nsx
+        u_map(i,k) = backup(i,k) + diffuse_intensity*(backup(ic,k) -2*backup(i,k) + backup(ib,k))
+      end do
     end do
 end subroutine rolling_mean
+
+subroutine rolling_mean_bottom(u_map)
+    use vars
+    implicit none
+    real, intent(inout)   :: u_map(nsx,nzm)
+    real :: backup(nsx,nzm)
+    integer i,ic,ib,k
+    backup = u_map
+    do k = 1,3
+      do i=1,nsx
+        ic = i + 1
+        if (ic > nsx) ic = ic - nsx
+        ib = i - 1
+        if (ib < 1) ib = ib + nsx
+        u_map(i,k) = backup(i,k) + 0.025*(backup(ic,k) -2*backup(i,k) + backup(ib,k))
+      end do
+    end do
+end subroutine rolling_mean_bottom
 
 
 subroutine rolling_mean_upper_bound(u_map)
@@ -1618,13 +1722,13 @@ subroutine rolling_mean_upper_bound(u_map)
     real :: backup(nsx,nzm)
     integer i,ic,ib,k
     backup = u_map
-    do k = nzm-2, nzm
+    do k = nzm-1, nzm
       do i=1,nsx
         ic = i + 1
         if (ic > nsx) ic = ic - nsx
         ib = i - 1
         if (ib < 1) ib = ib + nsx
-        u_map(i,k) = backup(i,k) + 0.23*(backup(ic,k) -2*backup(i,k) + backup(ib,k))
+        u_map(i,k) = backup(i,k) + 0.1*(backup(ic,k) -2*backup(i,k) + backup(ib,k))
       end do
     end do
 end subroutine rolling_mean_upper_bound

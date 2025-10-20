@@ -259,6 +259,12 @@ logical :: could_hm_nudging = .false.
 logical :: nouvchatting = .false.
 logical :: hm_only = .false.
 
+logical :: do_3step_adams = .false.
+real dudt_hm_hist(nsx,nzm,3)
+real dwdt_hm_hist(nsx,nz,3)
+
 real diffuse_intensity
+
+integer :: hm_subcycle
 
 end module vars
