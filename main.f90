@@ -143,7 +143,9 @@ do while(nstep.lt.nstop.and.nelapse.gt.0)
           if(dompimmf) then
                if(mod(nstep, nstephostmodel).eq.0) then
                     call hm_couple_step()
-                    call modify_U_for_subdomain()
+                    if (.not. nouvchatting) then
+                         call modify_U_for_subdomain()
+                    end if
                     if (.not. could_hm_nudging) then
                          could_hm_nudging = .true.
                     end if
@@ -242,15 +244,18 @@ do while(nstep.lt.nstop.and.nelapse.gt.0)
 
      if (dompimmf) then
           if (could_hm_nudging) then
-               ! if (nouvchatting) then
-               !      call nudging_hm_nouv()
-               ! else
-               !      call nudging_hm()
-               ! end if
-               if (hm_only) then
-                    call nudging()
+               if (nouvchatting) then
+                    if (but_nudge_u) then
+                         call nudging_hm()
+                    else
+                         call nudging_hm_nouv()
+                    end if 
                else
-                    call nudging_hm()
+                    if (hm_only) then
+                         call nudging()
+                    else
+                         call nudging_hm()
+                    end if
                end if
           else
                call nudging()
@@ -405,6 +410,9 @@ do while(nstep.lt.nstop.and.nelapse.gt.0)
    end if
 !  collect statistics, write save-file, etc.
 
+   prec_xy_save = prec_xy
+   shf_xy_save = shf_xy
+   lhf_xy_save = lhf_xy
    call stepout(nstatsteps)
  
    ! randmultisine: add perturbation to fields

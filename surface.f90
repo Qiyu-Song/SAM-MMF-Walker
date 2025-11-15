@@ -227,6 +227,9 @@ end if ! SFC_FLX_FXD
 
 shf_xy(:,:) = shf_xy(:,:) + fluxbt(:,:) * dtfactor
 lhf_xy(:,:) = lhf_xy(:,:) + fluxbq(:,:) * dtfactor
+
+! shf_xy_save = shf_xy
+! lhf_xy_save = lhf_xy
 call t_stopf ('surface')
 
 end

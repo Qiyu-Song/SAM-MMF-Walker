@@ -62,7 +62,7 @@ NAMELIST /KUANG_PARAMS/ dompiensemble, &
                 dosavemultirestart, nrestartstart,&
                 donoisywave, noiselevel, &
                 dompimmf, nstephostmodel, hm_spinup_step, &
-                nouvchatting, hm_only, diffuse_intensity,do_3step_adams,hm_subcycle
+                nouvchatting, but_nudge_u, hm_only, diffuse_intensity,do_3step_adams,hm_subcycle, include_qnqp_in_hm
 
 
                 
