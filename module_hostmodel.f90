@@ -49,9 +49,9 @@ subroutine host_model_init()
       
     end do
     
-    if (hm_only) then
-      call set_sin_x_sst_for_hm(t_hm_map_save)
-    end if
+    ! if (hm_only) then
+    !   call set_sin_x_sst_for_hm(t_hm_map_save)
+    ! end if
   end if
 
 end subroutine host_model_init
@@ -74,7 +74,7 @@ subroutine set_sin_x_sst_for_hm(t_map)
   pii = atan2(0.d0,-1.d0)
   do i = 1, nsx
     do k = 1, 6
-      t_map(i,k) = t_map(i,k) - 0.0*cos(2.*pii*i/nsx) - 1.0*((-1.)**(i))
+      t_map(i,k) = t_map(i,k) - 2.5*cos(2.*pii*i/nsx)         ! - 1.0*((-1.)**(i))
     end do
   end do
 end subroutine set_sin_x_sst_for_hm
@@ -318,8 +318,10 @@ subroutine host_model_evolve( &
 
     ! -------------------加个bubble------------------------------------------------------------------------------------
     
-    ! if (hm_step.le.20) then
-    !   call hot_bubble(hm_step, t_hm_map)
+    ! if (hm_only) then
+    !   if (hm_step.le.20) then
+    !     call hot_bubble(hm_step, t_hm_map)
+    !   end if
     ! end if
     call output_host_model_single_variable(t_hm_map, 't1', 't_after_bubble' , 'K', icyc)
     
@@ -330,16 +332,20 @@ subroutine host_model_evolve( &
     else
       do k = 1, nzm
           do i = 1, nsx
-            tabs_map_hm(i,k) = t_hm_map(i,k) - gamaz(k)    ! tabs(i,j,k) = t(i,j,k)-gamaz(k)+ fac_cond * (qcl(i,j,k)+qpl(i,j,k)) +fac_sub *(qci(i,j,k) + qpi(i,j,k))
+            if (include_qnqp_in_hm) then
+              tabs_map_hm(i,k) = t_hm_map(i,k) - gamaz(k)+ fac_cond * (qnl_hm_map(i,k)+qpl_hm_map(i,k)) +fac_sub *(qni_hm_map(i,k) + qpi_hm_map(i,k))    ! tabs(i,j,k) = t(i,j,k)-gamaz(k)+ fac_cond * (qcl(i,j,k)+qpl(i,j,k)) +fac_sub *(qci(i,j,k) + qpi(i,j,k))
+            else
+              tabs_map_hm(i,k) = t_hm_map(i,k) - gamaz(k)
+            end if
           end do   
       end do
       if (include_qnqp_in_hm) then
-        call buoyancy_hm(tabs0_in, q_hm_map, qni_hm_map+qnl_hm_map, qpi_hm_map+qpl_hm_map, dwdt_hm)
+        call buoyancy_hm(tabs_map_hm, q_hm_map, qni_hm_map+qnl_hm_map, qpi_hm_map+qpl_hm_map, dwdt_hm)
       else
-        call buoyancy_hm(tabs0_in, q_hm_map, qn0_in, qp0_in, dwdt_hm)
-        call buoyancy_hm(tabs0_in, q_hm_map, qn0_in, qp0_in, dwdt_hm_tmp)
-        tmp(:, :) = dwdt_hm_tmp(:,1:nzm)
-        call output_host_model_single_variable(tmp, 'dwdtt0in', 'dwdt_if_use_tabs0in' , 'm/s2', icyc)
+        call buoyancy_hm(tabs_map_hm, q_hm_map, qn0_in, qp0_in, dwdt_hm)
+        ! call buoyancy_hm(tabs0_in, q_hm_map, qn0_in, qp0_in, dwdt_hm_tmp)
+        ! tmp(:, :) = dwdt_hm_tmp(:,1:nzm)
+        ! call output_host_model_single_variable(tmp, 'dwdtt0in', 'dwdt_if_use_tabs0in' , 'm/s2', icyc)
       end if
     end if
 
@@ -406,16 +412,16 @@ subroutine host_model_evolve( &
     ! 5) 标量平流（上风，正定）
     call advect_scalars_hm(t_hm_map, u1_hm_map, w1_hm_map)
     call advect_scalars_hm(q_hm_map, u1_hm_map, w1_hm_map)
-    if (include_qnqp_in_hm) then
-      call advect_scalars_hm(qni_hm_map, u1_hm_map, w1_hm_map)
-      call advect_scalars_hm(qnl_hm_map, u1_hm_map, w1_hm_map)
-      call advect_scalars_hm(qpi_hm_map, u1_hm_map, w1_hm_map)
-      call advect_scalars_hm(qpl_hm_map, u1_hm_map, w1_hm_map)
-      call output_host_model_single_variable(qni_hm_map, 'qni', 'qni_hm_map' , 'kg/kg', icyc)
-      call output_host_model_single_variable(qnl_hm_map, 'qnl', 'qnl_hm_map' , 'kg/kg', icyc)
-      call output_host_model_single_variable(qpi_hm_map, 'qpi', 'qpi_hm_map' , 'kg/kg', icyc)
-      call output_host_model_single_variable(qpl_hm_map, 'qpl', 'qpl_hm_map' , 'kg/kg', icyc)
-    end if 
+    ! if (include_qnqp_in_hm) then
+    !   call advect_scalars_hm(qni_hm_map, u1_hm_map, w1_hm_map)
+    !   call advect_scalars_hm(qnl_hm_map, u1_hm_map, w1_hm_map)
+    !   call advect_scalars_hm(qpi_hm_map, u1_hm_map, w1_hm_map)
+    !   call advect_scalars_hm(qpl_hm_map, u1_hm_map, w1_hm_map)
+    !   call output_host_model_single_variable(qni_hm_map, 'qni', 'qni_hm_map' , 'kg/kg', icyc)
+    !   call output_host_model_single_variable(qnl_hm_map, 'qnl', 'qnl_hm_map' , 'kg/kg', icyc)
+    !   call output_host_model_single_variable(qpi_hm_map, 'qpi', 'qpi_hm_map' , 'kg/kg', icyc)
+    !   call output_host_model_single_variable(qpl_hm_map, 'qpl', 'qpl_hm_map' , 'kg/kg', icyc)
+    ! end if 
 
   end do
 
@@ -524,20 +530,31 @@ subroutine damping_hm(u_hm_map, w_hm_map, dudt_hm, dwdt_hm)
         tau(k)=1./tau(k)
     end do
     ! print*, 'finish tau'
-    do k = 1, nzm
-        u0_entire_domain(k) = sum( u_hm_map(:,k) ) / nsx
-    end do
-    ! print*, 'horizontal mean'
+    ! do k = 1, nzm
+    !     u0_entire_domain(k) = sum( u_hm_map(:,k) ) / nsx
+    ! end do
+    ! ! print*, 'horizontal mean'
+    ! do k = nzm, nzm-n_damp, -1
+    !     do i=1,nsx
+    !         dudt_hm(i,k)= dudt_hm(i,k)-(u_hm_map(i,k)-u0_entire_domain(k)) * tau(k)
+    !         dwdt_hm(i,k)= dwdt_hm(i,k)-w_hm_map(i,k) * tau(k)
+    !     end do
+    ! end do 
+
+
+    ! damping toward zero
     do k = nzm, nzm-n_damp, -1
         do i=1,nsx
-            dudt_hm(i,k)= dudt_hm(i,k)-(u_hm_map(i,k)-u0_entire_domain(k)) * tau(k)
+            dudt_hm(i,k)= dudt_hm(i,k)-u_hm_map(i,k) * tau(k)
             dwdt_hm(i,k)= dwdt_hm(i,k)-w_hm_map(i,k) * tau(k)
         end do
     end do 
 
+
+
     do k = 1,nzm
         do i = 1, nsx
-            dudt_hm(i,k) = dudt_hm(i,k) - (u_hm_map(i,k) - u0_entire_domain(k)) /(10.0*24.0*3600.0)
+            dudt_hm(i,k) = dudt_hm(i,k) - u_hm_map(i,k)  /(10.0*24.0*3600.0)
         end do
     end do
     do k = 1,nz
@@ -1311,7 +1328,7 @@ subroutine output_host_model(u0_in, t0_in, q0_in,  &
     print*, 'Rank=', rank, '*************begin output_host_model***************'
 
     filetype = '.bin2D'
-    filename='./OUT_3D/tabs_t/'//trim(case)//'_'//trim(caseid)//&
+    filename='./OUT_3D/evolve_buoyancy/'//trim(case)//'_'//trim(caseid)//&
     filetype//sepchar
     if(nrestart.eq.0.and.notopened3D) then
         open(46,file=filename,status='unknown',form='unformatted')	
@@ -1515,7 +1532,7 @@ subroutine output_host_model_single_variable(u0_in, v_name,v_longname,v_unit,icy
     print*, 'Rank=', rank, '*************begin output_host_model***************'
 
     filetype = '.bin2D'
-    filename='./OUT_3D/tabs_t/'//trim(case)//'_'//trim(caseid)//&
+    filename='./OUT_3D/evolve_buoyancy/'//trim(case)//'_'//trim(caseid)//&
     '_'//trim(name)//filetype//sepchar
     if(nrestart.eq.0.and.notopened3D) then
         open(46,file=filename,status='unknown',form='unformatted')	
@@ -1533,7 +1550,8 @@ subroutine output_host_model_single_variable(u0_in, v_name,v_longname,v_unit,icy
     end do
     write(46) real(dx_hm,4)  
     write(46) real(dy,4)
-    write(46) real(float(nstep + icyc/hm_subcycle*nstephostmodel)*dt/(3600.*24.)+day0,4)
+    
+    write(46) real(REAL(nstep + REAL(icyc)/REAL(hm_subcycle)*REAL(nstephostmodel))*dt/(3600.*24.)+day0, 4)
 
   
     nfields1_hm=nfields1_hm+1
@@ -1702,7 +1720,7 @@ subroutine hot_bubble(hm_step, t)
 
 end subroutine hot_bubble
 
-subroutine buoyancy_only_in_hm(t_hm_map, q_hm_map, dwdt_hm)
+subroutine buoyancy_only_in_hm(t_hm_map, q_hm_map, dwdt_hm)   !  qni_hm_map, qnl_hm_map, qpi_hm_map, qpl_hm_map,
   use vars
   use params
   implicit none
@@ -1714,7 +1732,7 @@ subroutine buoyancy_only_in_hm(t_hm_map, q_hm_map, dwdt_hm)
   real betu, betd
 	
   do k = 1, nzm
-      do i = 1, nsx
+      do i = 1, nsx   ! tabs(i,j,k) = t(i,j,k)-gamaz(k)+ fac_cond * (qcl(i,j,k)+qpl(i,j,k)) +fac_sub *(qci(i,j,k) + qpi(i,j,k))
         tabs_map(i,k) = t_hm_map(i,k) - gamaz(k)
       end do
       tabs0_entire_domain(k) = sum( tabs_map(:,k) ) / nsx
@@ -1859,7 +1877,7 @@ subroutine rolling_mean_TQ(t_map)
         if (ic > nsx) ic = ic - nsx
         ib = i - 1
         if (ib < 1) ib = ib + nsx
-        t_map(i,k) = t_map(i,k) + 0.005*(t_map(ic,k) -2*t_map(i,k) + t_map(ib,k))
+        t_map(i,k) = t_map(i,k) + diffuse_intensity*(t_map(ic,k) -2*t_map(i,k) + t_map(ib,k))
       end do
     end do
 
