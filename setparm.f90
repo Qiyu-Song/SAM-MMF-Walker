@@ -261,7 +261,7 @@ end if
         end if
 
         if(dompimmf) then
-          dx_hm = dx * nx
+          dx_hm = dx * nx / 0.5
           dt_hm = dt * nstephostmodel
           dt_hm_subcycle = dt_hm / hm_subcycle
           if(masterproc) then

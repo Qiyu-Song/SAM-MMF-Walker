@@ -289,4 +289,6 @@ real prec_xy_save(nx,ny)
 real shf_xy_save(nx,ny)
 real lhf_xy_save(nx,ny)
 
+integer :: ratio_subdomain2domain =1
+
 end module vars

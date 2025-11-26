@@ -367,7 +367,10 @@ subroutine host_model_evolve( &
     call rolling_mean_w(w_hm_map, dwdt_hm)
     ! call rolling_mean_TQ(t_hm_map)
     ! call rolling_mean_TQ(q_hm_map)
-   
+    ! ! call rolling_mean_upper_bound(u_hm_map)
+    ! ! call rolling_mean_bottom(u_hm_map)
+
+
     ! if (include_qnqp_in_hm) then
     !   call rolling_mean_TQ(qni_hm_map)
     !   call rolling_mean_TQ(qnl_hm_map)
@@ -554,12 +557,17 @@ subroutine damping_hm(u_hm_map, w_hm_map, dudt_hm, dwdt_hm)
 
     do k = 1,nzm
         do i = 1, nsx
-            dudt_hm(i,k) = dudt_hm(i,k) - u_hm_map(i,k)  /(10.0*24.0*3600.0)
+            dudt_hm(i,k) = dudt_hm(i,k) - u_hm_map(i,k)  /(20.0*24.0*3600.0)
         end do
     end do
+    ! do k = 1,2
+    !     do i = 1, nsx
+    !         dudt_hm(i,k) = dudt_hm(i,k) - u_hm_map(i,k)  /(10.0*24.0*3600.0)
+    !     end do
+    ! end do
     do k = 1,nz
         do i = 1, nsx
-            dwdt_hm(i,k) = dwdt_hm(i,k) - w_hm_map(i,k)  /(10.0*24.0*3600.0)
+            dwdt_hm(i,k) = dwdt_hm(i,k) - w_hm_map(i,k)  /(20.0*24.0*3600.0)
         end do
     end do
 
@@ -1325,10 +1333,10 @@ subroutine output_host_model(u0_in, t0_in, q0_in,  &
     timechar(k:k)='0'
     end do
 
-    print*, 'Rank=', rank, '*************begin output_host_model***************'
+    ! print*, 'Rank=', rank, '*************begin output_host_model***************'
 
     filetype = '.bin2D'
-    filename='./OUT_3D/evolve_buoyancy/'//trim(case)//'_'//trim(caseid)//&
+    filename='./OUT_3D/vary_subdomain_size/'//trim(case)//'_'//trim(caseid)//&
     filetype//sepchar
     if(nrestart.eq.0.and.notopened3D) then
         open(46,file=filename,status='unknown',form='unformatted')	
@@ -1481,7 +1489,7 @@ subroutine output_host_model(u0_in, t0_in, q0_in,  &
 
 
     if(nfields_hm.ne.nfields1_hm) then
-        print*,'host model write_fields3D error: nfields_hm=',nfields_hm,'  nfields1_hm=',nfields1_hm
+        ! print*,'host model write_fields3D error: nfields_hm=',nfields_hm,'  nfields1_hm=',nfields1_hm
         call task_abort()
     end if
 
@@ -1532,7 +1540,7 @@ subroutine output_host_model_single_variable(u0_in, v_name,v_longname,v_unit,icy
     print*, 'Rank=', rank, '*************begin output_host_model***************'
 
     filetype = '.bin2D'
-    filename='./OUT_3D/evolve_buoyancy/'//trim(case)//'_'//trim(caseid)//&
+    filename='./OUT_3D/vary_subdomain_size/'//trim(case)//'_'//trim(caseid)//&
     '_'//trim(name)//filetype//sepchar
     if(nrestart.eq.0.and.notopened3D) then
         open(46,file=filename,status='unknown',form='unformatted')	
@@ -1844,6 +1852,17 @@ subroutine rolling_mean_u(u_map,dudt_hm)
         dudt_hm(i,k) = dudt_hm(i,k) + 0.1*(u_map(ic,k) -2*u_map(i,k) + u_map(ib,k))/dt_hm_subcycle
       end do
     end do
+
+    ! do k = 1,3
+    !   do i=1,nsx
+    !     ic = i + 1
+    !     if (ic > nsx) ic = ic - nsx
+    !     ib = i - 1
+    !     if (ib < 1) ib = ib + nsx
+    !     dudt_hm(i,k) = dudt_hm(i,k) + 0.005*(u_map(ic,k) -2*u_map(i,k) + u_map(ib,k))/dt_hm_subcycle
+    !     ! dudt_hm(i,1) = dudt_hm(i,1) + 0.005*(u_map(ic,1) -2*u_map(i,1) + u_map(ib,1))/dt_hm_subcycle
+    !   end do
+    ! end do
 end subroutine rolling_mean_u
 
 subroutine rolling_mean_w(w_map,dwdt_hm)
@@ -1897,7 +1916,7 @@ end subroutine rolling_mean_TQ
 !         if (ic > nsx) ic = ic - nsx
 !         ib = i - 1
 !         if (ib < 1) ib = ib + nsx
-!         u_map(i,k) = backup(i,k) + 0.025*(backup(ic,k) -2*backup(i,k) + backup(ib,k))
+!         u_map(i,k) = backup(i,k) + 0.005*(backup(ic,k) -2*backup(i,k) + backup(ib,k))
 !       end do
 !     end do
 ! end subroutine rolling_mean_bottom
