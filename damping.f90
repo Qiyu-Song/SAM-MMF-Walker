@@ -45,5 +45,18 @@ do k = nzm, nzm-n_damp, -1
    end do! j
 end do ! k
 
+if (CRM_damping0) then
+   do k = 1, nzm
+      do j=1,ny
+         do i=1,nx
+            dudt(i,j,k,na)= dudt(i,j,k,na)-(u(i,j,k)-0)/20.0/86400.0
+            dvdt(i,j,k,na)= dvdt(i,j,k,na)-(v(i,j,k)-0)/20.0/86400.0
+            dwdt(i,j,k,na)= dwdt(i,j,k,na)-w(i,j,k)/20.0/86400.0
+
+         end do! i 
+      end do! j
+   end do ! k
+end if
+
 call t_stopf('damping')
 end subroutine damping

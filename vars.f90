@@ -235,7 +235,7 @@ real u0_local_hm(nzm)
 real t0_local_hm(nzm)
 real q0_local_hm(nzm)
 real tabs0_local_hm(nzm)
-real qv0_local_hm(nzm)
+! real qv0_local_hm(nzm)
 real qn0_local_hm(nzm)
 real qp0_local_hm(nzm)
 real qni0_local_hm(nzm)
@@ -247,10 +247,10 @@ real prec_flx_local_hm(nzm)
 real ug0_hm(nzm)
 real tg0_hm(nzm)
 real qg0_hm(nzm)
-real qnig0_hm(nzm)
-real qnlg0_hm(nzm)
-real qpig0_hm(nzm)
-real qplg0_hm(nzm)
+! real qnig0_hm(nzm)
+! real qnlg0_hm(nzm)
+! real qpig0_hm(nzm)
+! real qplg0_hm(nzm)
 real ug0_press_modify(nzm)
 
 real u_hm_map_save(nsx, nzm)
@@ -260,20 +260,21 @@ real t_hm_map_save(nsx, nzm)
 real t_sub_map_save(nsx, nzm)
 real q_hm_map_save(nsx, nzm)
 real q_sub_map_save(nsx, nzm)
-real qni_hm_map_save(nsx, nzm)
-real qni_sub_map_save(nsx, nzm)
-real qpi_hm_map_save(nsx, nzm)
-real qpi_sub_map_save(nsx, nzm)
-real qnl_hm_map_save(nsx, nzm)
-real qnl_sub_map_save(nsx, nzm)
-real qpl_hm_map_save(nsx, nzm)
-real qpl_sub_map_save(nsx, nzm)
+! real qni_hm_map_save(nsx, nzm)
+! real qni_sub_map_save(nsx, nzm)
+! real qpi_hm_map_save(nsx, nzm)
+! real qpi_sub_map_save(nsx, nzm)
+! real qnl_hm_map_save(nsx, nzm)
+! real qnl_sub_map_save(nsx, nzm)
+! real qpl_hm_map_save(nsx, nzm)
+! real qpl_sub_map_save(nsx, nzm)
 
 integer :: hm_spinup_step
 logical :: could_hm_nudging = .false.
 logical :: nouvchatting = .false.
 logical :: but_nudge_u = .true.
 logical :: hm_only = .false.
+logical :: CRM_damping0 = .false.
 
 logical :: do_3step_adams = .false.
 real dudt_hm_hist(nsx,nzm,3)

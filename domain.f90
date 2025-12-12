@@ -3,10 +3,10 @@
 module domain
 
        integer, parameter :: YES3D = 1  ! Domain dimensionality: 1 - 3D, 0 - 2D
-       integer, parameter :: nx_gl = 80*16 ! Number of grid points in X   2560*1
-       integer, parameter :: ny_gl = 16 ! Number of grid points in Y
+       integer, parameter :: nx_gl = 2560*2 ! Number of grid points in X   
+       integer, parameter :: ny_gl = 32 ! Number of grid points in Y
        integer, parameter :: nz_gl = 28 ! Number of pressure (scalar) levels
-       integer, parameter :: nsubdomains_x  = 80 ! No of subdomains in x
+       integer, parameter :: nsubdomains_x  = 80*2 ! No of subdomains in x
        integer, parameter :: nsubdomains_y  = 1 ! No of subdomains in y
 
        ! define # of points in x and y direction to average for 

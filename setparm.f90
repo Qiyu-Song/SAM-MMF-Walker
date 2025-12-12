@@ -62,7 +62,8 @@ NAMELIST /KUANG_PARAMS/ dompiensemble, &
                 dosavemultirestart, nrestartstart,&
                 donoisywave, noiselevel, &
                 dompimmf, nstephostmodel, hm_spinup_step, &
-                nouvchatting, but_nudge_u, hm_only, diffuse_intensity,do_3step_adams,hm_subcycle, include_qnqp_in_hm
+                nouvchatting, but_nudge_u, hm_only, diffuse_intensity,do_3step_adams,hm_subcycle, include_qnqp_in_hm, &
+                CRM_damping0
 
 
                 
@@ -261,7 +262,7 @@ end if
         end if
 
         if(dompimmf) then
-          dx_hm = dx * nx / 0.5
+          dx_hm = dx * nx / 2.0  ! 如果要改分辨率
           dt_hm = dt * nstephostmodel
           dt_hm_subcycle = dt_hm / hm_subcycle
           if(masterproc) then
