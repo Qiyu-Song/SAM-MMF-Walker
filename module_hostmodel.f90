@@ -43,8 +43,10 @@ subroutine host_model_init()
     ! ------------------------------------------------
     do i = 1, nsx
       t_hm_map_save(i,:) = t0(:)
+      t_hm_updated_map_save(i,:) = t0(:)
       t_sub_map_save(i,:) = t0(:)
       q_hm_map_save(i,:) = q0(:)
+      q_hm_updated_map_save(i,:) = q0(:)
       q_sub_map_save(i,:) = q0(:)
       
     end do
@@ -143,7 +145,7 @@ subroutine host_model_evolve( &
   real, intent(in) :: t0_in(nsx, nzm)
   real, intent(in) :: q0_in(nsx, nzm)
   real, intent(in) :: tabs0_in(nsx, nzm)
-  ! real, intent(in) :: qv0_in(nsx, nzm)
+
   real, intent(in) :: qn0_in(nsx, nzm)
   real, intent(in) :: qp0_in(nsx, nzm)
   real, intent(in) :: qni0_in(nsx, nzm)
@@ -160,10 +162,7 @@ subroutine host_model_evolve( &
   real, intent(out) :: t_out_map(nsx, nzm)
   real, intent(out) :: q_out_map(nsx, nzm)
   real, intent(out) :: u_press_modify(nsx, nzm)
-  ! real, intent(out) :: qni_out_map(nsx, nzm)
-  ! real, intent(out) :: qnl_out_map(nsx, nzm)
-  ! real, intent(out) :: qpi_out_map(nsx, nzm)
-  ! real, intent(out) :: qpl_out_map(nsx, nzm)
+
 
   ! -------- 局部 --------
   real :: dudt_hm(nsx, nzm),  dwdt_hm(nsx, nz),  dwdt_hm_tmp(nsx, nz)
@@ -172,7 +171,6 @@ subroutine host_model_evolve( &
   real :: p_phys(nsx, nzm)    ! 压力势（诊断用，可不输出）
   real :: tmp(nsx, nzm), tmp1(nsx, nzm), tmp2(nsx, nzm), tmp_U(nsx, nzm), tmp_dudt(nsx, nzm)
   real :: u_hm_map(nsx, nzm),  w_hm_map(nsx, nz), t_hm_map(nsx, nzm), q_hm_map(nsx, nzm) ! , qni_hm_map(nsx, nzm) , qnl_hm_map(nsx, nzm), qpi_hm_map(nsx, nzm), qpl_hm_map(nsx, nzm)
-  real :: u_start_map(nsx, nzm), t_start_map(nsx, nzm), q_start_map(nsx, nzm)!, qni_start_map(nsx, nzm), qnl_start_map(nsx, nzm), qpi_start_map(nsx, nzm), qpl_start_map(nsx, nzm)
   integer :: i, k
   real :: tabs_map_hm(nsx, nzm)
   logical :: do_3step_adams_tmp
@@ -184,51 +182,25 @@ subroutine host_model_evolve( &
   t_out_map = 0.
   q_out_map = 0.
   u_press_modify = 0.
-  ! qni_out_map = 0.
-  ! qnl_out_map = 0.
-  ! qpi_out_map = 0.
-  ! qpl_out_map = 0.
 
-  ! if (hm_step .eq. 0) then
-  !   if (include_qnqp_in_hm) then
-  !     qni_hm_map_save(:,:) = qni0_in(:,:)
-  !     qni_sub_map_save(:,:) = qni0_in(:,:)
-  !     qnl_hm_map_save(:,:) = qnl0_in(:,:)
-  !     qnl_sub_map_save(:,:) = qnl0_in(:,:)
-  !     qpi_hm_map_save(:,:) = qpi0_in(:,:)
-  !     qpi_sub_map_save(:,:) = qpi0_in(:,:)
-  !     qpl_hm_map_save(:,:) = qpl0_in(:,:)
-  !     qpl_sub_map_save(:,:) = qpl0_in(:,:)
-  !   end if
-  ! end if
-
-  ! 拷贝初值
   
   w_hm_map = wsub_in
   
   if (hm_only) then
-    u_hm_map = u_hm_updated_map_save
-    t_hm_map = t_hm_map_save
-    q_hm_map = q_hm_map_save
+    u_hm_map = u_hm_updated_map_save         ! u_hm_updated_map_save 上一次hm_step更新之后的u
+    t_hm_map = t_hm_updated_map_save
+    q_hm_map = q_hm_updated_map_save
 
-    u_start_map = u_hm_map
-    t_start_map = t_hm_map
-    q_start_map = q_hm_map
-    ! if (include_qnqp_in_hm) then
-    !   qni_hm_map = qni_hm_map_save
-    !   qnl_hm_map = qnl_hm_map_save
-    !   qpi_hm_map = qpi_hm_map_save
-    !   qpl_hm_map = qpl_hm_map_save
-    !   qni_start_map = qni_hm_map
-    !   qnl_start_map = qnl_hm_map
-    !   qpi_start_map = qpi_hm_map
-    !   qpl_start_map = qpl_hm_map
-    ! end if 
+    u_hm_map_save = u_hm_map
+    t_hm_map_save = t_hm_map
+    q_hm_map_save = q_hm_map
+
+  
   else
     if (nouvchatting) then
       u_hm_map = u_hm_updated_map_save
     else !全都通信的情况
-      call face2center_U((u_hm_updated_map_save-u_hm_map_save),tmp1)
+      call face2center_U((u_hm_updated_map_save-u_hm_map_save),tmp1)  !u_hm_updated_map_save 上一次hm_step更新之后的u； u_hm_map_save 上一次hm_step更新之前的u
 
       call output_host_model_single_variable(u_hm_updated_map_save-u_hm_map_save, 'deltaU', 'u_hm_updated-u_hm' , 'm/s', 0)
 
@@ -238,9 +210,7 @@ subroutine host_model_evolve( &
 
       u_hm_map = u_hm_updated_map_save + tmp2
       tmp_U = u_hm_map
-      
-      ! call rolling_mean(u_hm_map)
-      ! call output_host_model_single_variable(u_hm_map, 'u_smooth', 'u_after_rolling_mean' , 'm/s')
+    
       
       dudt_hm = 0.0
       dwdt_hm = 0.0
@@ -268,7 +238,7 @@ subroutine host_model_evolve( &
       call face2center_U((u_hm_map - tmp_U), u_press_modify)
       call output_host_model_single_variable(u_press_modify, 'U_modify', 'U_back_to_subdomain' , 'm/s', 0)
       u_sub_map_save = u0_in + u_press_modify
-    end if
+    end if   ! if (nouvchatting) else
 
     t_hm_map = t_hm_map_save + t0_in - t_sub_map_save
     t_sub_map_save = t0_in
@@ -276,44 +246,26 @@ subroutine host_model_evolve( &
     q_hm_map = q_hm_map_save + q0_in - q_sub_map_save
     q_sub_map_save = q0_in
 
-    u_start_map = u_hm_map
-    t_start_map = t_hm_map
-    q_start_map = q_hm_map
-    u_hm_map_save = u_start_map
-    t_hm_map_save = t_start_map
-    q_hm_map_save = q_start_map
 
-    ! if (include_qnqp_in_hm) then
-    !   qni_hm_map = qni_hm_map_save + qni0_in - qni_sub_map_save
-    !   qni_sub_map_save = qni0_in
-    !   qni_start_map = qni_hm_map
-    !   qni_hm_map_save = qni_start_map
+    u_hm_map_save = u_hm_map
+    t_hm_map_save = t_hm_map
+    q_hm_map_save = q_hm_map
 
-    !   qnl_hm_map = qnl_hm_map_save + qnl0_in - qnl_sub_map_save
-    !   qnl_sub_map_save = qnl0_in
-    !   qnl_start_map = qnl_hm_map
-    !   qnl_hm_map_save = qnl_start_map
 
-    !   qpi_hm_map = qpi_hm_map_save + qpi0_in - qpi_sub_map_save
-    !   qpi_sub_map_save = qpi0_in
-    !   qpi_start_map = qpi_hm_map
-    !   qpi_hm_map_save = qpi_start_map
+  end if    ! if (hm_only) else
 
-    !   qpl_hm_map = qpl_hm_map_save + qpl0_in - qpl_sub_map_save
-    !   qpl_sub_map_save = qpl0_in
-    !   qpl_start_map = qpl_hm_map
-    !   qpl_hm_map_save = qpl_start_map
-    ! end if 
-  end if
+
+  ! call output_host_model_single_variable(qp0_in, 'qp0in', 'qp0_in_for_buoyancy' , 'kg/kg', 0)
+  ! call output_host_model_single_variable(qn0_in, 'qn0in', 'qn0_in_for_buoyancy' , 'kg/kg', 0)
+  ! call output_host_model_single_variable(tabs0_in, 'tabs0in', 'tabs0_in_for_buoyancy' , 'K', 0)
 
 
   !----------------------------------------------------------------------------------
   do icyc = 1,hm_subcycle
 
-    dudt_hm = 0.0; dwdt_hm = 0.0; dwdt_hm_tmp = 0.0
+    dudt_hm = 0.0; dwdt_hm = 0.0
 
     ! 1) 浮力
-    ! call buoyancy_hm(tabs0_in, qv0_in, qn0_in, qp0_in, dwdt_hm)
 
     ! -------------------加个bubble------------------------------------------------------------------------------------
     
@@ -322,7 +274,7 @@ subroutine host_model_evolve( &
     !     call hot_bubble(hm_step, t_hm_map)
     !   end if
     ! end if
-    call output_host_model_single_variable(t_hm_map, 't1', 't_after_bubble' , 'K', icyc)
+    ! call output_host_model_single_variable(t_hm_map, 't1', 't_after_bubble' , 'K', icyc)
     
     
     ! -------------------------------------------------------------------------------------------------------
@@ -331,34 +283,24 @@ subroutine host_model_evolve( &
     else
       do k = 1, nzm
           do i = 1, nsx
-            if (include_qnqp_in_hm) then
+            
               tabs_map_hm(i,k) = t_hm_map(i,k) - gamaz(k)+ fac_cond * (qnl0_in(i,k)+qpl0_in(i,k)) +fac_sub *(qni0_in(i,k) + qpi0_in(i,k))    ! tabs(i,j,k) = t(i,j,k)-gamaz(k)+ fac_cond * (qcl(i,j,k)+qpl(i,j,k)) +fac_sub *(qci(i,j,k) + qpi(i,j,k))
-            else
-              tabs_map_hm(i,k) = t_hm_map(i,k) - gamaz(k)
-            end if
+            
           end do   
       end do
-      ! if (include_qnqp_in_hm) then
-        call buoyancy_hm(tabs_map_hm, q_hm_map-qn0_in, qn0_in, qp0_in, dwdt_hm)
-      ! else
-      !   call buoyancy_hm(tabs_map_hm, q_hm_map-qn0_in, qn0_in, qp0_in, dwdt_hm)
-        ! call buoyancy_hm(tabs0_in, q_hm_map, qn0_in, qp0_in, dwdt_hm_tmp)
-        ! tmp(:, :) = dwdt_hm_tmp(:,1:nzm)
-        ! call output_host_model_single_variable(tmp, 'dwdtt0in', 'dwdt_if_use_tabs0in' , 'm/s2', icyc)
-      ! end if
+      
+      call buoyancy_hm(tabs_map_hm, q_hm_map-qn0_in, qn0_in, qp0_in, dwdt_hm)
+      
     end if
 
     tmp(:, :) = dwdt_hm(:,1:nzm)
     call output_host_model_single_variable(tmp, 'dwdt1', 'dwdt_after_buoyancy' , 'm/s2', icyc)
-    call output_host_model_single_variable(q_hm_map-qn0_in, 'qv0', 'qv0_in_for_buoyancy' , 'kg/kg', icyc)
-    call output_host_model_single_variable(qp0_in, 'qp0in1', 'qp0_in_for_buoyancy' , 'kg/kg', icyc)
-    call output_host_model_single_variable(qn0_in, 'qn0in1', 'qn0_in_for_buoyancy' , 'kg/kg', icyc)
-    call output_host_model_single_variable(tabs0_in, 'tabs0in1', 'tabs0_in_for_buoyancy' , 'K', icyc)
+    call output_host_model_single_variable(q_hm_map-qn0_in, 'qv0', 'qv0_in_for_buoyancy' , 'kg/kg', icyc)   
     call output_host_model_single_variable(tabs_map_hm, 'tabshm', 'tabs_map_hm_for_buoyancy' , 'K', icyc)
 
     ! 1-1) damping
     ! if (nstep .lt. 129600) then
-    !   call damping0_hm(u_hm_map, w_hm_map, dudt_hm, dwdt_hm)
+      ! call damping0_hm(u_hm_map, w_hm_map, dudt_hm, dwdt_hm)
     ! else
       call dampingRM_hm(u_hm_map, w_hm_map, dudt_hm, dwdt_hm)
     ! endif
@@ -369,28 +311,16 @@ subroutine host_model_evolve( &
     tmp(:, :) = dwdt_hm(:,1:nzm)
     call output_host_model_single_variable(tmp, 'dwdt_dam', 'dwdt_after_damping' , 'm/s2', icyc)
 
-    call output_host_model_single_variable(dudt_hm-u_hm_map  /(20.0*24.0*3600.0), 'test_dam', 'dudt_difference' , 'm/s2', icyc)
 
     tmp_dudt = dudt_hm
     call diffuse_u(u_hm_map, dudt_hm)
     call diffuse_w(w_hm_map, dwdt_hm)
-    call diffuse_TQ(t_hm_map)
-    call diffuse_TQ(q_hm_map)
+    ! call diffuse_TQ(t_hm_map)
+    ! call diffuse_TQ(q_hm_map)
     call output_host_model_single_variable(dudt_hm-tmp_dudt, 'dudt_dif', 'dudt_diffuse' , 'm/s2', icyc)
 
 
-    ! ! call diffuse_upper_bound(u_hm_map)
-    ! ! call diffuse_bottom(u_hm_map)
-
-
-    ! if (include_qnqp_in_hm) then
-    !   call diffuse_TQ(qni_hm_map)
-    !   call diffuse_TQ(qnl_hm_map)
-    !   call diffuse_TQ(qpi_hm_map)
-    !   call diffuse_TQ(qpl_hm_map)
-    ! end if
-
-    call output_host_model_single_variable(u_hm_map, 'u_smooth', 'u_after_rolling_mean' , 'm/s', icyc)
+    call output_host_model_single_variable(u_hm_map, 'u_smooth', 'u_after_diffusion' , 'm/s', icyc)
 
 
     ! 2) 动量平流（2D，二阶中心）
@@ -424,53 +354,30 @@ subroutine host_model_evolve( &
 
     tmp(:, :) = w1_hm_map(:,1:nzm)
     call output_host_model_single_variable(tmp, 'W41', 'W1_after_adams' , 'm/s', icyc)
-    ! 5) 标量平流（上风，正定）
+    ! 5) 标量平流
     call advect_scalars_hm(t_hm_map, u1_hm_map, w1_hm_map)
     call advect_scalars_hm(q_hm_map, u1_hm_map, w1_hm_map)
-    ! if (include_qnqp_in_hm) then
-    !   ! call advect_scalars_hm(qni_hm_map, u1_hm_map, w1_hm_map)
-    !   ! call advect_scalars_hm(qnl_hm_map, u1_hm_map, w1_hm_map)
-    !   ! call advect_scalars_hm(qpi_hm_map, u1_hm_map, w1_hm_map)
-    !   ! call advect_scalars_hm(qpl_hm_map, u1_hm_map, w1_hm_map)
-    !   call output_host_model_single_variable(qni_hm_map, 'qni', 'qni_hm_map' , 'kg/kg', icyc)
-    !   call output_host_model_single_variable(qnl_hm_map, 'qnl', 'qnl_hm_map' , 'kg/kg', icyc)
-    !   call output_host_model_single_variable(qpi_hm_map, 'qpi', 'qpi_hm_map' , 'kg/kg', icyc)
-    !   call output_host_model_single_variable(qpl_hm_map, 'qpl', 'qpl_hm_map' , 'kg/kg', icyc)
-    ! end if 
-
+ 
+    call output_host_model_single_variable(t_hm_map, 't4', 't_after_advect' , 'K', icyc)
+    call output_host_model_single_variable(q_hm_map, 'q4', 'q_after_advect' , 'kg/kg', icyc)
   end do
 
   u_hm_updated_map_save = u_hm_map
+  t_hm_updated_map_save = t_hm_map
+  q_hm_updated_map_save = q_hm_map 
 
-  t_out_map = t_hm_map - t_start_map
-  q_out_map = q_hm_map - q_start_map
-  ! if (include_qnqp_in_hm) then
-  !   qni_out_map = qni_hm_map - qni_start_map
-  !   qnl_out_map = qnl_hm_map - qnl_start_map
-  !   qpi_out_map = qpi_hm_map - qpi_start_map
-  !   qpl_out_map = qpl_hm_map - qpl_start_map
-  !   call output_host_model_single_variable(qni_out_map, 'qni_out', 'qni_out_map' , 'kg/kg', 0)
-  !   call output_host_model_single_variable(qnl_out_map, 'qnl_out', 'qnl_out_map' , 'kg/kg', 0)
-  !   call output_host_model_single_variable(qpi_out_map, 'qpi_out', 'qpi_out_map' , 'kg/kg', 0)
-  !   call output_host_model_single_variable(qpl_out_map, 'qpl_out', 'qpl_out_map' , 'kg/kg', 0)
-  ! end if
-  call face2center_U((u_hm_map-u_start_map), u_out_map)
+  t_out_map = t_hm_map - t_hm_map_save
+  q_out_map = q_hm_map - q_hm_map_save
+ 
+  call face2center_U((u_hm_map-u_hm_map_save), u_out_map)
   w_out_map = w_hm_map
 
-  if (hm_only) then
-    t_hm_map_save = t_hm_map
-    q_hm_map_save = q_hm_map
-    ! if (include_qnqp_in_hm) then
-    !   qni_hm_map_save = qni_hm_map
-    !   qnl_hm_map_save = qnl_hm_map
-    !   qpi_hm_map_save = qpi_hm_map
-    !   qpl_hm_map_save = qpl_hm_map
-    ! end if
-  end if
 
   call output_host_model(u0_in, t0_in, q0_in,  &
-                          u_out_map, t_out_map, q_out_map, w_out_map,&
-                          tabs0_in, q_start_map-qn0_in, qn0_in, qp0_in)
+                        tabs0_in, qn0_in, qp0_in, &
+                        qni0_in, qnl0_in, qpi0_in, qpl0_in,  &
+                        u_out_map,  w_out_map, t_out_map, q_out_map)
+
 
 
  
@@ -594,53 +501,6 @@ subroutine damping0_hm(u_hm_map, w_hm_map, dudt_hm, dwdt_hm)
 
 
 
-
-  !   ! ---------------------------------------damp toward layer-mean "dapgM"------------------------------------------------
-  !   do k = nzm, nzm-n_damp, -1
-  !       do i=1,nsx
-  !           dudt_hm(i,k)= dudt_hm(i,k)-(u_hm_map(i,k)-u0_entire_domain(k)) * tau(k)
-  !           dwdt_hm(i,k)= dwdt_hm(i,k)-(w_hm_map(i,k)-w0_entire_domain(k)) * tau(k)
-  !       end do
-  !   end do 
-
-
-
-  !   do k = 1,nzm
-  !       do i = 1, nsx
-  !           dudt_hm(i,k) = dudt_hm(i,k) - (u_hm_map(i,k)-u0_entire_domain(k))  /(20.0*24.0*3600.0)
-  !       end do
-  !   end do
-
-  !   do k = 1,nz
-  !       do i = 1, nsx
-  !           dwdt_hm(i,k) = dwdt_hm(i,k) - (w_hm_map(i,k)-w0_entire_domain(k))  /(20.0*24.0*3600.0)
-  !       end do
-  !   end do
-  ! ! ----------------------------------------------------------------------------------------------------------
-    
-
-  !   ! ---------------------------------------damp to remove layer-mean "dapgRM"------------------------------------------------
-  !   do k = nzm, nzm-n_damp, -1
-  !       do i=1,nsx
-  !           dudt_hm(i,k)= dudt_hm(i,k)- u0_entire_domain(k) * tau(k)
-  !           dwdt_hm(i,k)= dwdt_hm(i,k)- w0_entire_domain(k) * tau(k)
-  !       end do
-  !   end do 
-
-
-
-  !   do k = 1,nzm
-  !       do i = 1, nsx
-  !           dudt_hm(i,k) = dudt_hm(i,k) - u0_entire_domain(k) /(10.0*24.0*3600.0)
-  !       end do
-  !   end do
-
-  !   do k = 1,nz
-  !       do i = 1, nsx
-  !           dwdt_hm(i,k) = dwdt_hm(i,k) - w0_entire_domain(k)  /(10.0*24.0*3600.0)
-  !       end do
-  !   end do
-  ! ! ----------------------------------------------------------------------------------------------------------
 end subroutine damping0_hm
 
 
@@ -696,13 +556,13 @@ subroutine dampingRM_hm(u_hm_map, w_hm_map, dudt_hm, dwdt_hm)
 
     do k = 1,nzm
         do i = 1, nsx
-            dudt_hm(i,k) = dudt_hm(i,k) - u0_entire_domain(k) /(10.0*24.0*3600.0)
+            dudt_hm(i,k) = dudt_hm(i,k) - u0_entire_domain(k) /(20.0*24.0*3600.0)
         end do
     end do
 
     do k = 1,nz
         do i = 1, nsx
-            dwdt_hm(i,k) = dwdt_hm(i,k) - w0_entire_domain(k)  /(10.0*24.0*3600.0)
+            dwdt_hm(i,k) = dwdt_hm(i,k) - w0_entire_domain(k)  /(20.0*24.0*3600.0)
         end do
     end do
   ! ----------------------------------------------------------------------------------------------------------
@@ -1300,217 +1160,154 @@ end subroutine advect_scalars_hm
 subroutine nudging_hm()
 ! keep nudging terms constant in each host model time step
 	
-use vars
-use params
-use microphysics, only: micro_field, index_water_vapor
-implicit none
+  use vars
+  use params
+  use microphysics, only: micro_field, index_water_vapor
+  implicit none
 
-real coef, coef1
-integer i,j,k
-	
-! call t_startf ('nudging_hm')
+  real coef, coef1
+  integer i,j,k
+    
+  ! call t_startf ('nudging_hm')
 
-tnudge = 0.
-qnudge = 0.
-unudge = 0.
-vnudge = 0.
+  tnudge = 0.
+  qnudge = 0.
+  unudge = 0.
+  vnudge = 0.
 
-coef = 1./dt_hm
+  coef = 1./dt_hm
 
-if(donudging_uv) then
-    do k=1,nzm
-      if(z(k).ge.nudging_uv_z1.and.z(k).le.nudging_uv_z2) then
-        unudge(k)=unudge(k) - (-ug0_hm(k))*coef
-        vnudge(k)=vnudge(k) - (v0(k)-vg0(k))/tauls
-        do j=1,ny
-          do i=1,nx
-             dudt(i,j,k,na)=dudt(i,j,k,na)-(-ug0_hm(k))*coef
-             dvdt(i,j,k,na)=dvdt(i,j,k,na)-(v0(k)-vg0(k))/tauls
+  if(donudging_uv) then
+      do k=1,nzm
+        if(z(k).ge.nudging_uv_z1.and.z(k).le.nudging_uv_z2) then
+          unudge(k)=unudge(k) - (-ug0_hm(k))*coef
+          vnudge(k)=vnudge(k) - (v0(k)-vg0(k))/tauls
+          do j=1,ny
+            do i=1,nx
+              dudt(i,j,k,na)=dudt(i,j,k,na)-(-ug0_hm(k))*coef
+              dvdt(i,j,k,na)=dvdt(i,j,k,na)-(v0(k)-vg0(k))/tauls
+            end do
           end do
-        end do
-      end if
-    end do
-endif
+        end if
+      end do
+  endif
 
-! no minus gamaz here since both t0_local_hm and tg0_hm include gamaz
-if(donudging_tq.or.donudging_t) then
-    coef1 = dtn / dt_hm
-    do k=1,nzm
-      if(z(k).ge.nudging_t_z1.and.z(k).le.nudging_t_z2) then
-        tnudge(k)=tnudge(k) -(-tg0_hm(k))*coef
-        do j=1,ny
-          do i=1,nx
-             t(i,j,k)=t(i,j,k)-(-tg0_hm(k))*coef1
+  ! no minus gamaz here since both t0_local_hm and tg0_hm include gamaz
+  if(donudging_tq.or.donudging_t) then
+      coef1 = dtn / dt_hm
+      do k=1,nzm
+        if(z(k).ge.nudging_t_z1.and.z(k).le.nudging_t_z2) then
+          tnudge(k)=tnudge(k) -(-tg0_hm(k))*coef
+          do j=1,ny
+            do i=1,nx
+              t(i,j,k)=t(i,j,k)-(-tg0_hm(k))*coef1
+            end do
           end do
-        end do
-      end if
-    end do
-endif
+        end if
+      end do
+  endif
 
-if(donudging_tq.or.donudging_q) then
-    coef1 = dtn / dt_hm
-    do k=1,nzm
-      if(z(k).ge.nudging_q_z1.and.z(k).le.nudging_q_z2) then
-        qnudge(k)=qnudge(k) -(-qg0_hm(k))*coef
-        do j=1,ny
-          do i=1,nx
-              micro_field(i,j,k,index_water_vapor)=micro_field(i,j,k,index_water_vapor)-(-qg0_hm(k))*coef1
+  if(donudging_tq.or.donudging_q) then
+      coef1 = dtn / dt_hm
+      do k=1,nzm
+        if(z(k).ge.nudging_q_z1.and.z(k).le.nudging_q_z2) then
+          qnudge(k)=qnudge(k) -(-qg0_hm(k))*coef
+          do j=1,ny
+            do i=1,nx
+                micro_field(i,j,k,index_water_vapor)=micro_field(i,j,k,index_water_vapor)-(-qg0_hm(k))*coef1
+            end do
           end do
-        end do
-      end if
-    end do
-endif
+        end if
+      end do
+  endif
 
 
 end subroutine nudging_hm
 
-! ! 外加把host model的修正项传回subdomain
-! subroutine nudging_and_modify()
-! ! keep nudging terms constant in each host model time step
-	
-! use vars
-! use params
-! use microphysics, only: micro_field, index_water_vapor
-! implicit none
 
-! real coef, coef1
-! integer i,j,k
-	
-! ! call t_startf ('nudging_hm')
-
-! tnudge = 0.
-! qnudge = 0.
-! unudge = 0.
-! vnudge = 0.
-
-! coef = 1./dt_hm
-
-! if(donudging_uv) then
-!     do k=1,nzm
-!       if(z(k).ge.nudging_uv_z1.and.z(k).le.nudging_uv_z2) then
-!         unudge(k)=unudge(k) - (-ug0_hm(k))*coef + ug0_press_modify(k)/dt
-!         vnudge(k)=vnudge(k) - (v0(k)-vg0(k))/tauls
-!         do j=1,ny
-!           do i=1,nx
-!              dudt(i,j,k,na)=dudt(i,j,k,na)-(-ug0_hm(k))*coef + ug0_press_modify(k)/dt
-!              dvdt(i,j,k,na)=dvdt(i,j,k,na)-(v0(k)-vg0(k))/tauls
-!           end do
-!         end do
-!       end if
-!     end do
-! endif
-
-! ! no minus gamaz here since both t0_local_hm and tg0_hm include gamaz
-! if(donudging_tq.or.donudging_t) then
-!     coef1 = dtn / dt_hm
-!     do k=1,nzm
-!       if(z(k).ge.nudging_t_z1.and.z(k).le.nudging_t_z2) then
-!         tnudge(k)=tnudge(k) -(-tg0_hm(k))*coef
-!         do j=1,ny
-!           do i=1,nx
-!              t(i,j,k)=t(i,j,k)-(-tg0_hm(k))*coef1
-!           end do
-!         end do
-!       end if
-!     end do
-! endif
-
-! if(donudging_tq.or.donudging_q) then
-!     coef1 = dtn / dt_hm
-!     do k=1,nzm
-!       if(z(k).ge.nudging_q_z1.and.z(k).le.nudging_q_z2) then
-!         qnudge(k)=qnudge(k) -(-qg0_hm(k))*coef
-!         do j=1,ny
-!           do i=1,nx
-!              micro_field(i,j,k,index_water_vapor)=micro_field(i,j,k,index_water_vapor)-(-qg0_hm(k))*coef1
-!           end do
-!         end do
-!       end if
-!     end do
-! endif
-
-
-! end subroutine nudging_and_modify
 
 
 ! 只nudge T q
 subroutine nudging_hm_nouv()
-! keep nudging terms constant in each host model time step
+  ! keep nudging terms constant in each host model time step
 	
-use vars
-use params
-use microphysics, only: micro_field, index_water_vapor
-implicit none
+  use vars
+  use params
+  use microphysics, only: micro_field, index_water_vapor
+  implicit none
 
-real coef, coef1
-integer i,j,k
-	
+  real coef, coef1
+  integer i,j,k
+    
 
-tnudge = 0.
-qnudge = 0.
-unudge = 0.
-vnudge = 0.
+  tnudge = 0.
+  qnudge = 0.
+  unudge = 0.
+  vnudge = 0.
 
-coef = 1./dt_hm
+  coef = 1./dt_hm
 
-if(donudging_uv) then
-    do k=1,nzm
-      if(z(k).ge.nudging_uv_z1.and.z(k).le.nudging_uv_z2) then
-        unudge(k)=unudge(k) - (u0(k)-ug0(k))/tauls
-        vnudge(k)=vnudge(k) - (v0(k)-vg0(k))/tauls
-        do j=1,ny
-          do i=1,nx
-             dudt(i,j,k,na)=dudt(i,j,k,na)-(u0(k)-ug0(k))/tauls
-             dvdt(i,j,k,na)=dvdt(i,j,k,na)-(v0(k)-vg0(k))/tauls
+  if(donudging_uv) then
+      do k=1,nzm
+        if(z(k).ge.nudging_uv_z1.and.z(k).le.nudging_uv_z2) then
+          unudge(k)=unudge(k) - (u0(k)-ug0(k))/tauls
+          vnudge(k)=vnudge(k) - (v0(k)-vg0(k))/tauls
+          do j=1,ny
+            do i=1,nx
+              dudt(i,j,k,na)=dudt(i,j,k,na)-(u0(k)-ug0(k))/tauls
+              dvdt(i,j,k,na)=dvdt(i,j,k,na)-(v0(k)-vg0(k))/tauls
+            end do
           end do
-        end do
-      end if
-    end do
-endif
+        end if
+      end do
+  endif
 
-! no minus gamaz here since both t0_local_hm and tg0_hm include gamaz
-if(donudging_tq.or.donudging_t) then
-    coef1 = dtn / dt_hm
-    do k=1,nzm
-      if(z(k).ge.nudging_t_z1.and.z(k).le.nudging_t_z2) then
-        tnudge(k)=tnudge(k) -(-tg0_hm(k))*coef
-        do j=1,ny
-          do i=1,nx
-             t(i,j,k)=t(i,j,k)-(-tg0_hm(k))*coef1
+  ! no minus gamaz here since both t0_local_hm and tg0_hm include gamaz
+  if(donudging_tq.or.donudging_t) then
+      coef1 = dtn / dt_hm
+      do k=1,nzm
+        if(z(k).ge.nudging_t_z1.and.z(k).le.nudging_t_z2) then
+          tnudge(k)=tnudge(k) -(-tg0_hm(k))*coef
+          do j=1,ny
+            do i=1,nx
+              t(i,j,k)=t(i,j,k)-(-tg0_hm(k))*coef1
+            end do
           end do
-        end do
-      end if
-    end do
-endif
+        end if
+      end do
+  endif
 
-if(donudging_tq.or.donudging_q) then
-    coef1 = dtn / dt_hm
-    do k=1,nzm
-      if(z(k).ge.nudging_q_z1.and.z(k).le.nudging_q_z2) then
-        qnudge(k)=qnudge(k) -(-qg0_hm(k))*coef
-        do j=1,ny
-          do i=1,nx
-             micro_field(i,j,k,index_water_vapor)=micro_field(i,j,k,index_water_vapor)-(-qg0_hm(k))*coef1
+  if(donudging_tq.or.donudging_q) then
+      coef1 = dtn / dt_hm
+      do k=1,nzm
+        if(z(k).ge.nudging_q_z1.and.z(k).le.nudging_q_z2) then
+          qnudge(k)=qnudge(k) -(-qg0_hm(k))*coef
+          do j=1,ny
+            do i=1,nx
+              micro_field(i,j,k,index_water_vapor)=micro_field(i,j,k,index_water_vapor)-(-qg0_hm(k))*coef1
+            end do
           end do
-        end do
-      end if
-    end do
-endif
+        end if
+      end do
+  endif
 
 
 end subroutine nudging_hm_nouv
 
      
 subroutine output_host_model(u0_in, t0_in, q0_in,  &
-  u_out_map, t_out_map, q_out_map, w_out_map,  &
-  tabs0_in, qv0_in, qn0_in, qp0_in)         ! 输出形状是（nsx，nzm ）的变量
+                        tabs0_in, qn0_in, qp0_in, &
+                        qni0_in, qnl0_in, qpi0_in, qpl0_in,  &
+                        u_out_map,  w_out_map, t_out_map, q_out_map)        ! 输出形状是（nsx，nzm ）的变量
 	
     use vars
 
     implicit none
     real, intent(in) :: u0_in(nsx, nzm), t0_in(nsx, nzm), q0_in(nsx, nzm)
-    real, intent(in) :: u_out_map(nsx, nzm), t_out_map(nsx, nzm), q_out_map(nsx, nzm), w_out_map(nsx, nz)
-    real, intent(in) :: tabs0_in(nsx, nzm), qv0_in(nsx, nzm), qn0_in(nsx, nzm), qp0_in(nsx, nzm)
+    real, intent(in) :: tabs0_in(nsx, nzm), qn0_in(nsx, nzm), qp0_in(nsx, nzm)
+    real, intent(in) :: qni0_in(nsx, nzm), qnl0_in(nsx, nzm), qpi0_in(nsx, nzm), qpl0_in(nsx, nzm)
+    real, intent(in) :: u_out_map(nsx, nzm), w_out_map(nsx, nz), t_out_map(nsx, nzm), q_out_map(nsx, nzm)
+    
     character *120 filename
     character *80 long_name
     character *8 name
@@ -1525,7 +1322,7 @@ subroutine output_host_model(u0_in, t0_in, q0_in,  &
     integer, external :: lenstr
 
 
-    nfields_hm=11 ! number of 3D fields to save
+    nfields_hm=14 ! number of 3D fields to save
     nfields1_hm=0
 
     sepchar=""
@@ -1539,7 +1336,7 @@ subroutine output_host_model(u0_in, t0_in, q0_in,  &
     ! print*, 'Rank=', rank, '*************begin output_host_model***************'
 
     filetype = '.bin2D'
-    filename='./OUT_3D/correct_q/'//trim(case)//'_'//trim(caseid)//&
+    filename='./OUT_3D/correct_q_test_damping/'//trim(case)//'_'//trim(caseid)//&
     filetype//sepchar
     if(nrestart.eq.0.and.notopened3D) then
         open(46,file=filename,status='unknown',form='unformatted')	
@@ -1572,7 +1369,7 @@ subroutine output_host_model(u0_in, t0_in, q0_in,  &
         end do
     end do
     name='U0_In'
-    long_name='Input X Wind Component For Host Model'
+    long_name='Input U from subdomain'
     units='m/s'
     call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
 
@@ -1586,7 +1383,7 @@ subroutine output_host_model(u0_in, t0_in, q0_in,  &
         end do
     end do
     name='T0_In'
-    long_name='Input Liquid/Ice Water Static Energy For Host Model'
+    long_name='Input Liquid/Ice Water Static Energy from subdomain'
     units='K'
     call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
 
@@ -1597,7 +1394,7 @@ subroutine output_host_model(u0_in, t0_in, q0_in,  &
         end do
     end do
     name='Q0_In'
-    long_name='Input Water Vapor For Host Model'
+    long_name='Input Water Vapor from subdomain'
     units='kg/kg'
     call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
 
@@ -1608,21 +1405,10 @@ subroutine output_host_model(u0_in, t0_in, q0_in,  &
         end do
     end do
     name='Tabs0_In'
-    long_name='Input Tabs For Host Model'
+    long_name='Input Tabs from subdomain'
     units='K'
     call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
 
-    nfields1_hm=nfields1_hm+1
-    do k=1,nzm
-        do i=1,nsx
-            tmp(i,1,k)=qv0_in(i,k)
-        end do
-    end do
-    name='Qv0_In'
-    long_name='Input Qv0 For Host Model'
-    units='kg/kg'
-    call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
-    
     nfields1_hm=nfields1_hm+1
     do k=1,nzm
         do i=1,nsx
@@ -1630,9 +1416,10 @@ subroutine output_host_model(u0_in, t0_in, q0_in,  &
         end do
     end do
     name='Qn0_In'
-    long_name='Input Qn0 For Host Model'
+    long_name='Input Qn0 from subdomain'
     units='kg/kg'
     call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
+    
 
     nfields1_hm=nfields1_hm+1
     do k=1,nzm
@@ -1641,9 +1428,54 @@ subroutine output_host_model(u0_in, t0_in, q0_in,  &
         end do
     end do
     name='Qp0_In'
-    long_name='Input Qp0 For Host Model'
+    long_name='Input Qp0 from subdomain'
     units='kg/kg'
     call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
+
+    nfields1_hm=nfields1_hm+1
+    do k=1,nzm
+        do i=1,nsx
+            tmp(i,1,k)=qni0_in(i,k)
+        end do
+    end do
+    name='Qni0_In'
+    long_name='Input Qni0 from subdomain'
+    units='kg/kg'
+    call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
+
+    nfields1_hm=nfields1_hm+1
+    do k=1,nzm
+        do i=1,nsx
+            tmp(i,1,k)=qnl0_in(i,k)
+        end do
+    end do
+    name='Qnl0_In'
+    long_name='Input Qnl0 from subdomain'
+    units='kg/kg'
+    call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
+
+    nfields1_hm=nfields1_hm+1
+    do k=1,nzm
+        do i=1,nsx
+            tmp(i,1,k)=qpi0_in(i,k)
+        end do
+    end do
+    name='Qpi0_In'
+    long_name='Input Qpi0 from subdomain'
+    units='kg/kg'
+    call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
+
+    nfields1_hm=nfields1_hm+1
+    do k=1,nzm
+        do i=1,nsx
+            tmp(i,1,k)=qpl0_in(i,k)
+        end do
+    end do
+    name='Qpl0_In'
+    long_name='Input Qpl0 from subdomain'
+    units='kg/kg'
+    call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
+
 
     nfields1_hm=nfields1_hm+1
     do k=1,nzm
@@ -1651,8 +1483,8 @@ subroutine output_host_model(u0_in, t0_in, q0_in,  &
             tmp(i,1,k)=u_out_map(i,k)
         end do
     end do
-    name='U0_Out'
-    long_name='Output X Wind Component For Host Model'
+    name='U_Out'
+    long_name='Output U'
     units='m/s'
     call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
 
@@ -1660,11 +1492,21 @@ subroutine output_host_model(u0_in, t0_in, q0_in,  &
     nfields1_hm=nfields1_hm+1
     do k=1,nzm
         do i=1,nsx
+            tmp(i,1,k)=w_out_map(i,k)
+        end do
+    end do
+    name='W_OUT'
+    long_name='Output W W_hm_map'
+    units='m/s'
+
+    nfields1_hm=nfields1_hm+1
+    do k=1,nzm
+        do i=1,nsx
             tmp(i,1,k)=t_out_map(i,k)
         end do
     end do
-    name='T0_Out'
-    long_name='Output Liquid/Ice Water Static Energy For Host Model'
+    name='T_Out'
+    long_name='Output Liquid/Ice Water Static Energy t'
     units='K'
     call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
 
@@ -1674,20 +1516,12 @@ subroutine output_host_model(u0_in, t0_in, q0_in,  &
             tmp(i,1,k)=q_out_map(i,k)
         end do
     end do
-    name='Q0_Out'
-    long_name='Output Water Vapor For Host Model'
+    name='Q_Out'
+    long_name='Output Water Vapor q'
     units='kg/kg'
     call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
 
-    nfields1_hm=nfields1_hm+1
-    do k=1,nzm
-        do i=1,nsx
-            tmp(i,1,k)=w_out_map(i,k)
-        end do
-    end do
-    name='W_SUB_OUT'
-    long_name='Output Large Scale Z Wind For Host Model'
-    units='m/s'
+    
     call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
 
 
@@ -1743,7 +1577,7 @@ subroutine output_host_model_single_variable(u0_in, v_name,v_longname,v_unit,icy
     print*, 'Rank=', rank, '*************begin output_host_model***************'
 
     filetype = '.bin2D'
-    filename='./OUT_3D/correct_q/'//trim(case)//'_'//trim(caseid)//&
+    filename='./OUT_3D/correct_q_test_damping/'//trim(case)//'_'//trim(caseid)//&
     '_'//trim(name)//filetype//sepchar
     if(nrestart.eq.0.and.notopened3D) then
         open(46,file=filename,status='unknown',form='unformatted')	
@@ -1967,67 +1801,7 @@ subroutine buoyancy_only_in_hm(t_hm_map, q_hm_map, dwdt_hm)   !  qni_hm_map, qnl
 end subroutine buoyancy_only_in_hm
 
 
-subroutine diffuse_sgs(u_map,icyc)
-    use vars
-    implicit none
-    integer, intent(in)   :: icyc
-    real, intent(inout)   :: u_map(nsx,nzm)
-    real :: backup(nsx, nzm)        ! 原始速度场的备份
-    real :: tk_local(nsx, nzm)      ! 局部的扩散强度 (未缩放)
-    
-    real :: tk_mean_k(nzm)          ! tk_local 在每层 k 上的平均值
-    real :: tk_stddev_k(nzm)        ! tk_local 在每层 k 上的标准差
-    
-    integer :: i, k
-    integer :: ic, ib
-    
-    real :: u_i, u_ic, u_ib
-    real :: u_local_mean, u_local_mean_abs 
-    real :: u_local_variance ! 局部方差
-    real :: u_local_stddev   ! 局部标准差
 
-    backup = u_map 
-
-    do k = 1, nzm
-        do i = 1, nsx
-            ic = i + 1
-            if (ic > nsx) ic = ic - nsx
-            ib = i - 1
-            if (ib < 1) ib = ib + nsx
-            
-            u_i  = backup(i, k)
-            u_ic = backup(ic, k)
-            u_ib = backup(ib, k)
-            u_local_mean = (u_ib + u_i + u_ic) / 3.0
-            u_local_mean_abs = (abs(u_ib) + abs(u_i) + abs(u_ic)) / 3.0
-            u_local_variance = ( (u_ib - u_local_mean)**2 + &
-                                 (u_i  - u_local_mean)**2 + &
-                                 (u_ic - u_local_mean)**2 ) / 3.0
-                                 
-            u_local_stddev = sqrt(u_local_variance)
-            if (abs(u_local_mean) < 1.0e-6) then
-                tk_local(i, k) = u_local_variance 
-            else
-                tk_local(i, k) = u_local_variance / abs(u_local_mean_abs)
-                ! tk_local(i, k) = u_local_variance / abs(u_local_mean)
-            end if
-            tk_local(i, k) = max(0.1, tk_local(i, k))
-            ! tk_local(i, k) = min(0.01/diffuse_intensity, tk_local(i, k))
-        end do
-    end do
-
-    call output_host_model_single_variable(tk_local, 'tk', 'tk_local' , '1', icyc)
-
-    do i=1,nsx
-      do k = 1, nzm
-        ic = i + 1
-        if (ic > nsx) ic = ic - nsx
-        ib = i - 1
-        if (ib < 1) ib = ib + nsx
-        u_map(i,:) = backup(i,:) + tk_local(i, k)*min(diffuse_intensity,10.0)*(backup(ic,:) -2*backup(i,:) + backup(ib,:))
-      end do
-    end do
-end subroutine diffuse_sgs
 
 subroutine diffuse_u(u_map,dudt_hm)
     use vars
@@ -2046,7 +1820,8 @@ subroutine diffuse_u(u_map,dudt_hm)
         dudt_hm(i,k) = dudt_hm(i,k) + diffuse_intensity*(u_map(ic,k) -2*u_map(i,k) + u_map(ib,k))/dt_hm_subcycle
       end do
     end do
-    do k = nzm-1,nzm
+
+    do k = nzm-1,nzm  ! top
       do i=1,nsx
         ic = i + 1
         if (ic > nsx) ic = ic - nsx
@@ -2056,7 +1831,7 @@ subroutine diffuse_u(u_map,dudt_hm)
       end do
     end do
 
-    ! do k = 1,3
+    ! do k = 1,3  ! bottom
     !   do i=1,nsx
     !     ic = i + 1
     !     if (ic > nsx) ic = ic - nsx
@@ -2105,43 +1880,6 @@ subroutine diffuse_TQ(t_map)
 
 end subroutine diffuse_TQ
 
-
-! subroutine diffuse_bottom(u_map)
-!     use vars
-!     implicit none
-!     real, intent(inout)   :: u_map(nsx,nzm)
-!     real :: backup(nsx,nzm)
-!     integer i,ic,ib,k
-!     backup = u_map
-!     do k = 1,3
-!       do i=1,nsx
-!         ic = i + 1
-!         if (ic > nsx) ic = ic - nsx
-!         ib = i - 1
-!         if (ib < 1) ib = ib + nsx
-!         u_map(i,k) = backup(i,k) + 0.005*(backup(ic,k) -2*backup(i,k) + backup(ib,k))
-!       end do
-!     end do
-! end subroutine diffuse_bottom
-
-
-! subroutine diffuse_upper_bound(u_map)
-!     use vars
-!     implicit none
-!     real, intent(inout)   :: u_map(nsx,nzm)
-!     real :: backup(nsx,nzm)
-!     integer i,ic,ib,k
-!     backup = u_map
-!     do k = nzm-1, nzm
-!       do i=1,nsx
-!         ic = i + 1
-!         if (ic > nsx) ic = ic - nsx
-!         ib = i - 1
-!         if (ib < 1) ib = ib + nsx
-!         u_map(i,k) = backup(i,k) + 0.1*(backup(ic,k) -2*backup(i,k) + backup(ib,k))
-!       end do
-!     end do
-! end subroutine diffuse_upper_bound
 
 
 subroutine modify_U_for_subdomain()

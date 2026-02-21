@@ -24,7 +24,8 @@ real xxx,yyy,zzz
 logical :: do_decomp_independent_perturb = .false.
 real rrr_loc(nx,ny,nzm)
 real, allocatable, dimension(:,:,:) :: rrr_gl
-
+integer,dimension(1)::seed=(/3/)
+call random_seed(put=seed)
 call ranset_(3*rank+icopy*10000)
 
 ptype = perturb_type

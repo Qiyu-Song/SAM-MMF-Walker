@@ -45,7 +45,7 @@ do k = nzm, nzm-n_damp, -1
    end do! j
 end do ! k
 
-if (CRM_damping0) then
+if (CRM_damping0) then   ! 只有跑纯SAM的时候才打开
    do k = 1, nzm
       do j=1,ny
          do i=1,nx
@@ -56,6 +56,26 @@ if (CRM_damping0) then
          end do! i 
       end do! j
    end do ! k
+
+
+elseif (CRM_dampingRM) then  ! 只有跑纯SAM的时候才打开
+   do k = 1, nzm
+      do j=1,ny
+         do i=1,nx
+            dudt(i,j,k,na)= dudt(i,j,k,na)-u_domain_avg(k)/20.0/86400.0
+            dvdt(i,j,k,na)= dvdt(i,j,k,na)-v_domain_avg(k)/20.0/86400.0
+         end do! i 
+      end do! j
+   end do ! k
+
+   do k = 1, nz
+      do j=1,ny
+         do i=1,nx
+            dwdt(i,j,k,na)= dwdt(i,j,k,na)-w_domain_avg(k)/20.0/86400.0
+         end do! i 
+      end do! j
+   end do ! k
+  
 end if
 
 call t_stopf('damping')

@@ -242,32 +242,24 @@ real qni0_local_hm(nzm)
 real qnl0_local_hm(nzm)
 real qpi0_local_hm(nzm)
 real qpl0_local_hm(nzm)
-real prec_flx_local_hm(nzm)
+real prec_flx_local_hm(nzm)  ! 1:prec 2:shf 3:lhf
 
 real ug0_hm(nzm)
 real tg0_hm(nzm)
 real qg0_hm(nzm)
-! real qnig0_hm(nzm)
-! real qnlg0_hm(nzm)
-! real qpig0_hm(nzm)
-! real qplg0_hm(nzm)
+
 real ug0_press_modify(nzm)
 
-real u_hm_map_save(nsx, nzm)
-real u_hm_updated_map_save(nsx, nzm)
+real u_hm_map_save(nsx, nzm)   ! 存储上一次hm_step之前的u
+real u_hm_updated_map_save(nsx, nzm)    ! 存储上一次hm_step更新之后的u
 real u_sub_map_save(nsx, nzm)
 real t_hm_map_save(nsx, nzm)
+real t_hm_updated_map_save(nsx, nzm)
 real t_sub_map_save(nsx, nzm)
 real q_hm_map_save(nsx, nzm)
+real q_hm_updated_map_save(nsx, nzm)
 real q_sub_map_save(nsx, nzm)
-! real qni_hm_map_save(nsx, nzm)
-! real qni_sub_map_save(nsx, nzm)
-! real qpi_hm_map_save(nsx, nzm)
-! real qpi_sub_map_save(nsx, nzm)
-! real qnl_hm_map_save(nsx, nzm)
-! real qnl_sub_map_save(nsx, nzm)
-! real qpl_hm_map_save(nsx, nzm)
-! real qpl_sub_map_save(nsx, nzm)
+
 
 integer :: hm_spinup_step
 logical :: could_hm_nudging = .false.
@@ -284,12 +276,15 @@ real diffuse_intensity
 
 integer :: hm_subcycle
 
-logical :: include_qnqp_in_hm = .false.
 
 real prec_xy_save(nx,ny)
 real shf_xy_save(nx,ny)
 real lhf_xy_save(nx,ny)
 
-integer :: ratio_subdomain2domain =1
+
+logical :: CRM_dampingRM = .false.
+real u_domain_avg(nzm)
+real v_domain_avg(nzm)
+real w_domain_avg(nz)
 
 end module vars

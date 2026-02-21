@@ -129,6 +129,10 @@ call t_stopf ('initialize')
 
 do while(nstep.lt.nstop.and.nelapse.gt.0) 
  
+     if (CRM_dampingRM) then
+          call get_domain_avg_U()
+     end if
+
      ! Host model
      if(dompimmf) then
           if ((nstep .ge. hm_spinup_step) .and. (.not. wsub_inited)) then

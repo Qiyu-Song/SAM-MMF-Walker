@@ -98,9 +98,9 @@ subroutine hm_couple_step()
    end do
 
     prec_flx_local_hm = -9999.0
-    prec_flx_local_hm(1) = sum( prec_xy_save(1:nx,1:ny) ) / real(nx*ny)
-    prec_flx_local_hm(2) = sum( shf_xy_save(1:nx,1:ny) ) / real(nx*ny)
-    prec_flx_local_hm(3) = sum( lhf_xy_save(1:nx,1:ny) ) / real(nx*ny)
+    prec_flx_local_hm(1) = sum( prec_xy_save(1:nx,1:ny) ) / real(nx*ny)  ! mm/day
+    prec_flx_local_hm(2) = sum( shf_xy_save(1:nx,1:ny) ) / real(nx*ny)   ! W/m2
+    prec_flx_local_hm(3) = sum( lhf_xy_save(1:nx,1:ny) ) / real(nx*ny)   ! W/m2
     
     ! gather u0
     if (masterproc) then
@@ -210,6 +210,11 @@ subroutine hm_couple_step()
         call task_bscatter_float_map(0, dummy2d,  nzm, nsx, qg0_hm(1))
     end if
 
+    if (masterproc) then
+        call task_bscatter_float_map(0, u_press_modify, nzm, nsx, ug0_press_modify(1))
+    else
+        call task_bscatter_float_map(0, dummy2d,  nzm, nsx, ug0_press_modify(1))
+    end if
 
     
     !------------------------------------------------------------

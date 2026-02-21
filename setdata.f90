@@ -225,6 +225,9 @@ do k= 1,nzm
 13 continue
  ug0(k)=u0(k)
  vg0(k)=v0(k)
+ u_domain_avg(k) = u0(k)
+ v_domain_avg(k) = v0(k)
+ w_domain_avg(k) = 0.
 end do
 
 prespoti(:) = (1000./presi(:))**(rgas/cp)
