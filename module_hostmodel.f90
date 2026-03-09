@@ -3,8 +3,7 @@ module module_hostmodel
   use vars, only: rho, rhow, hm_step
   implicit none
   private
-  public :: host_model_init, host_model_finalize, host_model_evolve, nudging_hm, nudging_hm_nouv, modify_U_for_subdomain
-  public :: set_constant_sst_hm, set_sin_x_sst, set_sin_x_sst_stripe
+  public :: host_model_init, host_model_finalize, host_model_evolve, nudging_hm, nudging_hm_nouv, modify_U_for_subdomain, set_sin_x_sst
  
 
 contains
@@ -1178,7 +1177,7 @@ subroutine output_host_model(u0_in, t0_in, q0_in,  &
     ! print*, 'Rank=', rank, '*************begin output_host_model***************'
 
     filetype = '.bin2D'
-    filename='./OUT_3D/correct_q_test_damping/'//trim(case)//'_'//trim(caseid)//&
+    filename='./OUT_3D/hm_output_'//trim(case)//'_'//trim(caseid)//&
     filetype//sepchar
     if(nrestart.eq.0.and.notopened3D) then
         open(46,file=filename,status='unknown',form='unformatted')	
@@ -1419,7 +1418,7 @@ subroutine output_host_model_single_variable(u0_in, v_name,v_longname,v_unit,icy
     print*, 'Rank=', rank, '*************begin output_host_model***************'
 
     filetype = '.bin2D'
-    filename='./OUT_3D/correct_q_test_damping/'//trim(case)//'_'//trim(caseid)//&
+    filename='./OUT_3D/hm_output_'//trim(case)//'_'//trim(caseid)//&
     '_'//trim(name)//filetype//sepchar
     if(nrestart.eq.0.and.notopened3D) then
         open(46,file=filename,status='unknown',form='unformatted')	
