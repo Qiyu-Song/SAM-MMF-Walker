@@ -210,30 +210,35 @@ subroutine host_model_evolve( &
 
       u_hm_map = u_hm_updated_map_save + tmp2
       tmp_U = u_hm_map
-    
-      
-      dudt_hm = 0.0
-      dwdt_hm = 0.0
 
       ! --------------------------------------------修正u,w------------------------------------------------------------
+      dudt_hm = 0.0
+      dwdt_hm = 0.0
+      
+      ! the reason to do this modification is that u/w fields in the host model should hold continuity equation,
+      ! but CRM updates does not guarantee this.
+      ! still need to temporarily enforce do_3step_adams = .false. in pressure_hm
       do_3step_adams_tmp = do_3step_adams
       do_3step_adams = .false.
       call pressure_hm(u_hm_map, w_hm_map, &
                                 dudt_hm, dwdt_hm, p_phys)
+      do_3step_adams = do_3step_adams_tmp
 
       call output_host_model_single_variable(dudt_hm, 'dudt_R', 'dudt_after_pressure_R' , 'm/s2', 0)
       tmp(:, :) = dwdt_hm(:,1:nzm)
       call output_host_model_single_variable(tmp, 'dwdt_R', 'dwdt_after_pressure_R' , 'm/s2', 0)
       call output_host_model_single_variable(p_phys, 'p_phys_R', 'Pressure_Perturbation_R' , 'Pa', 0)
 
-      ! 时间推进
-      call adams_hm(u_hm_map,  w_hm_map, dudt_hm, dwdt_hm, &
-                      u1_hm_map, w1_hm_map)
+      ! add modification terms to u/w fields
+      ! this will be the final state of the previous step / the initial state for the next step for the host model. 
+      ! dt_hm_subcycle is used because this is the time step assumed in pressure_hm computation of tendencies.
+      u_hm_map = u_hm_map + dudt_hm * dt_hm_subcycle
+      w_hm_map = w_hm_map + dwdt_hm * dt_hm_subcycle
 
       call output_host_model_single_variable(u_hm_map, 'U_R', 'U_after_adams_R' , 'm/s', 0)
       tmp(:, :) = w_hm_map(:,1:nzm)
       call output_host_model_single_variable(tmp, 'W_R', 'W_after_adams_R' , 'm/s', 0)
-      do_3step_adams = do_3step_adams_tmp
+      
       ! ------------------------------------------------------------------------------------------------------------------
       call face2center_U((u_hm_map - tmp_U), u_press_modify)
       call output_host_model_single_variable(u_press_modify, 'U_modify', 'U_back_to_subdomain' , 'm/s', 0)
