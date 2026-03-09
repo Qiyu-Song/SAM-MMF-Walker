@@ -261,10 +261,10 @@ real q_hm_updated_map_save(nsx, nzm)
 real q_sub_map_save(nsx, nzm)
 
 
-integer :: hm_spinup_step
+integer :: hm_spinup_step = 0
 logical :: could_hm_nudging = .false.
 logical :: nouvchatting = .false.
-logical :: but_nudge_u = .true.
+logical :: but_nudge_u = .false.
 logical :: hm_only = .false.
 logical :: CRM_damping0 = .false.
 
@@ -272,9 +272,9 @@ logical :: do_3step_adams = .false.
 real dudt_hm_hist(nsx,nzm,3)
 real dwdt_hm_hist(nsx,nz,3)
 
-real diffuse_intensity
+real :: diffuse_intensity = 0.
 
-integer :: hm_subcycle
+integer :: hm_subcycle = 1
 
 
 real prec_xy_save(nx,ny)
