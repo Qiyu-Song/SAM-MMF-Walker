@@ -304,13 +304,7 @@ subroutine host_model_evolve( &
     call output_host_model_single_variable(tabs_map_hm, 'tabshm', 'tabs_map_hm_for_buoyancy' , 'K', icyc)
 
     ! 1-1) damping
-    ! if (nstep .lt. 129600) then
-      ! call damping0_hm(u_hm_map, w_hm_map, dudt_hm, dwdt_hm)
-    ! else
-      call dampingRM_hm(u_hm_map, w_hm_map, dudt_hm, dwdt_hm)
-    ! endif
-
-    ! call dampingM_hm(u_hm_map, w_hm_map, dudt_hm, dwdt_hm)
+    call damping_hm(u_hm_map, w_hm_map, dudt_hm, dwdt_hm)
 
     call output_host_model_single_variable(dudt_hm, 'dudt_dam', 'dudt_after_damping' , 'm/s2', icyc)
     tmp(:, :) = dwdt_hm(:,1:nzm)
@@ -428,7 +422,7 @@ end subroutine buoyancy_hm
 
 
 
-subroutine damping0_hm(u_hm_map, w_hm_map, dudt_hm, dwdt_hm)
+subroutine damping_hm(u_hm_map, w_hm_map, dudt_hm, dwdt_hm)
     use vars
     implicit none
 
@@ -467,98 +461,17 @@ subroutine damping0_hm(u_hm_map, w_hm_map, dudt_hm, dwdt_hm)
     end do
 
 
-    ! -------------------------  original  ------------------------------------------------------
-    ! do k = nzm, nzm-n_damp, -1
-    !     do i=1,nsx
-    !         dudt_hm(i,k)= dudt_hm(i,k)-(u_hm_map(i,k)-u0_entire_domain(k)) * tau(k)
-    !         dwdt_hm(i,k)= dwdt_hm(i,k)-w_hm_map(i,k) * tau(k)
-    !     end do
-    ! end do 
-    ! --------------------------------------------------------------------------------------------------
 
-
-    ! -------------------------damping toward zero------------------------------------------------------
+    !  ---------------------------------------damp to remove upper-layer waves-------------------------------------------------
     do k = nzm, nzm-n_damp, -1
         do i=1,nsx
-            dudt_hm(i,k)= dudt_hm(i,k)-u_hm_map(i,k) * tau(k)
-            dwdt_hm(i,k)= dwdt_hm(i,k)-w_hm_map(i,k) * tau(k)
+            dudt_hm(i,k)= dudt_hm(i,k)- (u_hm_map(i,k) - u0_entire_domain(k)) * tau(k)
+            dwdt_hm(i,k)= dwdt_hm(i,k)- (w_hm_map(i,k) - w0_entire_domain(k)) * tau(k)
         end do
     end do 
-
-
-
-    do k = 1,nzm
-        do i = 1, nsx
-            dudt_hm(i,k) = dudt_hm(i,k) - u_hm_map(i,k)  /(20.0*24.0*3600.0)
-        end do
-    end do
-    ! do k = 1,2
-    !     do i = 1, nsx
-    !         dudt_hm(i,k) = dudt_hm(i,k) - u_hm_map(i,k)  /(10.0*24.0*3600.0)
-    !     end do
-    ! end do
-    do k = 1,nz
-        do i = 1, nsx
-            dwdt_hm(i,k) = dwdt_hm(i,k) - w_hm_map(i,k)  /(20.0*24.0*3600.0)
-        end do
-    end do
-    ! ----------------------------------------------------------------------------------------------------------
-
-
-
-end subroutine damping0_hm
-
-
-subroutine dampingRM_hm(u_hm_map, w_hm_map, dudt_hm, dwdt_hm)
-    use vars
-    implicit none
-
-    real, intent(in)  :: u_hm_map(nsx, nzm), w_hm_map(nsx, nz)
-    real, intent(inout) :: dudt_hm(nsx, nzm), dwdt_hm(nsx, nz)
-
-    real :: u0_entire_domain(nzm)
-    real :: w0_entire_domain(nz)
-
-    real tau_min	! minimum damping time-scale (at the top)
-    real tau_max    ! maxim damping time-scale (base of damping layer)
-    real damp_depth ! damping depth as a fraction of the domain height
-    parameter(tau_min=1800., tau_max=3600., damp_depth=0.3)
-    real tau(nzm)   
-    integer i, k, n_damp
-
-   
-
-    do k=nzm,1,-1
-        if(z(nzm)-z(k).lt.damp_depth*z(nzm)) then 
-            n_damp=nzm-k+1
-        endif
-    end do
-
-    do k=nzm,nzm-n_damp,-1
-        tau(k) = tau_min *(tau_max/tau_min)**((z(nzm)-z(k))/(z(nzm)-z(nzm-n_damp)))
-        tau(k)=1./tau(k)
-    end do
-   
-    do k = 1, nzm
-        u0_entire_domain(k) = sum( u_hm_map(:,k) ) / nsx
-    end do
-
-    do k = 1, nz
-        w0_entire_domain(k) = sum( w_hm_map(:,k) ) / nsx
-    end do
-
 
 
     ! ---------------------------------------damp to remove layer-mean "dapgRM"------------------------------------------------
-    do k = nzm, nzm-n_damp, -1
-        do i=1,nsx
-            dudt_hm(i,k)= dudt_hm(i,k)- u0_entire_domain(k) * tau(k)
-            dwdt_hm(i,k)= dwdt_hm(i,k)- w0_entire_domain(k) * tau(k)
-        end do
-    end do 
-
-
-
     do k = 1,nzm
         do i = 1, nsx
             dudt_hm(i,k) = dudt_hm(i,k) - u0_entire_domain(k) /(20.0*24.0*3600.0)
@@ -571,83 +484,7 @@ subroutine dampingRM_hm(u_hm_map, w_hm_map, dudt_hm, dwdt_hm)
         end do
     end do
   ! ----------------------------------------------------------------------------------------------------------
-end subroutine dampingRM_hm
-
-
-subroutine dampingM_hm(u_hm_map, w_hm_map, dudt_hm, dwdt_hm)
-    use vars
-    implicit none
-
-    real, intent(in)  :: u_hm_map(nsx, nzm), w_hm_map(nsx, nz)
-    real, intent(inout) :: dudt_hm(nsx, nzm), dwdt_hm(nsx, nz)
-
-    real :: u0_entire_domain(nzm)
-    real :: w0_entire_domain(nz)
-
-    real tau_min	! minimum damping time-scale (at the top)
-    real tau_max    ! maxim damping time-scale (base of damping layer)
-    real damp_depth ! damping depth as a fraction of the domain height
-    parameter(tau_min=1800., tau_max=3600., damp_depth=0.3)
-    real tau(nzm)   
-    integer i, k, n_damp
-
-   
-
-    do k=nzm,1,-1
-        if(z(nzm)-z(k).lt.damp_depth*z(nzm)) then 
-            n_damp=nzm-k+1
-        endif
-    end do
-
-    do k=nzm,nzm-n_damp,-1
-        tau(k) = tau_min *(tau_max/tau_min)**((z(nzm)-z(k))/(z(nzm)-z(nzm-n_damp)))
-        tau(k)=1./tau(k)
-    end do
-   
-    do k = 1, nzm
-        u0_entire_domain(k) = sum( u_hm_map(:,k) ) / nsx
-    end do
-
-    do k = 1, nz
-        w0_entire_domain(k) = sum( w_hm_map(:,k) ) / nsx
-    end do
-
-
-    ! -------------------------  original  ------------------------------------------------------
-    ! do k = nzm, nzm-n_damp, -1
-    !     do i=1,nsx
-    !         dudt_hm(i,k)= dudt_hm(i,k)-(u_hm_map(i,k)-u0_entire_domain(k)) * tau(k)
-    !         dwdt_hm(i,k)= dwdt_hm(i,k)-w_hm_map(i,k) * tau(k)
-    !     end do
-    ! end do 
-    ! --------------------------------------------------------------------------------------------------
-
-
-
-    ! ---------------------------------------damp toward layer-mean "dapgM"------------------------------------------------
-    do k = nzm, nzm-n_damp, -1
-        do i=1,nsx
-            dudt_hm(i,k)= dudt_hm(i,k)-(u_hm_map(i,k)-u0_entire_domain(k)) * tau(k)
-            dwdt_hm(i,k)= dwdt_hm(i,k)-(w_hm_map(i,k)-w0_entire_domain(k)) * tau(k)
-        end do
-    end do 
-
-
-
-    do k = 1,nzm
-        do i = 1, nsx
-            dudt_hm(i,k) = dudt_hm(i,k) - (u_hm_map(i,k)-u0_entire_domain(k))  /(20.0*24.0*3600.0)
-        end do
-    end do
-
-    do k = 1,nz
-        do i = 1, nsx
-            dwdt_hm(i,k) = dwdt_hm(i,k) - (w_hm_map(i,k)-w0_entire_domain(k))  /(20.0*24.0*3600.0)
-        end do
-    end do
-  ! ----------------------------------------------------------------------------------------------------------
-
-end subroutine dampingM_hm
+end subroutine damping_hm
 
 
 
