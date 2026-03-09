@@ -1662,27 +1662,6 @@ subroutine diffuse_u(u_map,dudt_hm)
         dudt_hm(i,k) = dudt_hm(i,k) + diffuse_intensity*(u_map(ic,k) -2*u_map(i,k) + u_map(ib,k))/dt_hm_subcycle
       end do
     end do
-
-    do k = nzm-1,nzm  ! top
-      do i=1,nsx
-        ic = i + 1
-        if (ic > nsx) ic = ic - nsx
-        ib = i - 1
-        if (ib < 1) ib = ib + nsx
-        dudt_hm(i,k) = dudt_hm(i,k) + 0.1*(u_map(ic,k) -2*u_map(i,k) + u_map(ib,k))/dt_hm_subcycle
-      end do
-    end do
-
-    ! do k = 1,3  ! bottom
-    !   do i=1,nsx
-    !     ic = i + 1
-    !     if (ic > nsx) ic = ic - nsx
-    !     ib = i - 1
-    !     if (ib < 1) ib = ib + nsx
-    !     dudt_hm(i,k) = dudt_hm(i,k) + 0.005*(u_map(ic,k) -2*u_map(i,k) + u_map(ib,k))/dt_hm_subcycle
-    !     ! dudt_hm(i,1) = dudt_hm(i,1) + 0.005*(u_map(ic,1) -2*u_map(i,1) + u_map(ib,1))/dt_hm_subcycle
-    !   end do
-    ! end do
 end subroutine diffuse_u
 
 subroutine diffuse_w(w_map,dwdt_hm)
