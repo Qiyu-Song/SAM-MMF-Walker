@@ -117,9 +117,10 @@ nstatis = nstat/nstatfrq
 nstat = nstatis * nstatfrq
 nstatsteps = 0
 
-! HOST MODEL
+! MPIMMF: setting the cosine SST distribution for Walker simulation
+! The original sst set in set_sst (from setdata) is neglected.
 if(dompimmf) then
-     call set_constant_sst_hm()
+     call set_sin_x_sst()
 end if
 
 call t_stopf ('initialize')
@@ -136,8 +137,6 @@ do while(nstep.lt.nstop.and.nelapse.gt.0)
      ! Host model
      if(dompimmf) then
           if ((nstep .ge. hm_spinup_step) .and. (.not. wsub_inited)) then
-               ! call set_sin_x_sst_stripe()
-               call set_sin_x_sst()
                call host_model_init()
           end if
      end if

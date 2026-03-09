@@ -58,28 +58,28 @@ subroutine host_model_init()
 
 end subroutine host_model_init
 
-subroutine set_constant_sst_hm()
-  use vars, only: sstxy,t00
-  use params, only: tabs_s, delta_sst, ocean_type
-  use grid
-  sstxy = tabs_s - t00
-end subroutine set_constant_sst_hm
+! subroutine set_constant_sst_hm()
+!   use vars, only: sstxy,t00
+!   use params, only: tabs_s, delta_sst, ocean_type
+!   use grid
+!   sstxy = tabs_s - t00
+! end subroutine set_constant_sst_hm
 
 
-subroutine set_sin_x_sst_for_hm(t_map)
-  use vars
-  implicit none
-  real, intent(inout) :: t_map(nsx, nzm)
-  real(8) pii
-  integer i,k
-
-  pii = atan2(0.d0,-1.d0)
-  do i = 1, nsx
-    do k = 1, 6
-      t_map(i,k) = t_map(i,k) - 2.5*cos(2.*pii*i/nsx)         ! - 1.0*((-1.)**(i))
-    end do
-  end do
-end subroutine set_sin_x_sst_for_hm
+! subroutine set_sin_x_sst_for_hm(t_map)
+!   use vars
+!   implicit none
+!   real, intent(inout) :: t_map(nsx, nzm)
+!   real(8) pii
+!   integer i,k
+! 
+!   pii = atan2(0.d0,-1.d0)
+!   do i = 1, nsx
+!     do k = 1, 6
+!       t_map(i,k) = t_map(i,k) - 2.5*cos(2.*pii*i/nsx)         ! - 1.0*((-1.)**(i))
+!     end do
+!   end do
+! end subroutine set_sin_x_sst_for_hm
 
 subroutine set_sin_x_sst()
   use vars, only: sstxy,t00
@@ -102,26 +102,26 @@ subroutine set_sin_x_sst()
   sstxy(1:nx, 1:ny) = sum(sstxy(:,:))/(nx*ny)
 end subroutine set_sin_x_sst
 
-subroutine set_sin_x_sst_stripe()
-  use vars, only: sstxy,t00
-  use params, only: tabs_s, delta_sst, ocean_type
-  use grid
-  implicit none
-  real(8) tmpx(nx), pii, lx
-  integer i,j
-  sstxy = tabs_s - t00
-  lx = float(nx_gl)*dx
-  do i = 1,nx
-    tmpx(i) = float(mod(rank,nsubdomains_x)*nx+i-1)*dx
-  end do
-  pii = atan2(0.d0,-1.d0)
-  do j=1,ny
-    do i=1,nx
-      sstxy(i,j) = tabs_s-delta_sst*cos(2.*pii*tmpx(i)/lx) - t00 + 1.0*((-1.0)**(rank+1))
-    end do
-  end do
-  sstxy(1:nx, 1:ny) = sum(sstxy(:,:))/(nx*ny)
-end subroutine set_sin_x_sst_stripe
+! subroutine set_sin_x_sst_stripe()
+!   use vars, only: sstxy,t00
+!   use params, only: tabs_s, delta_sst, ocean_type
+!   use grid
+!   implicit none
+!   real(8) tmpx(nx), pii, lx
+!   integer i,j
+!   sstxy = tabs_s - t00
+!   lx = float(nx_gl)*dx
+!   do i = 1,nx
+!     tmpx(i) = float(mod(rank,nsubdomains_x)*nx+i-1)*dx
+!   end do
+!   pii = atan2(0.d0,-1.d0)
+!   do j=1,ny
+!     do i=1,nx
+!       sstxy(i,j) = tabs_s-delta_sst*cos(2.*pii*tmpx(i)/lx) - t00 + 1.0*((-1.0)**(rank+1))
+!     end do
+!   end do
+!   sstxy(1:nx, 1:ny) = sum(sstxy(:,:))/(nx*ny)
+! end subroutine set_sin_x_sst_stripe
 
 subroutine host_model_finalize()  !暂时不打算调用
   use vars
