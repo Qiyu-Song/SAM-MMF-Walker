@@ -413,10 +413,11 @@ do while(nstep.lt.nstop.and.nelapse.gt.0)
    end if
 !  collect statistics, write save-file, etc.
 
-   prec_xy_save = prec_xy
+   prec_xy_save = prec_xy_crm
    shf_xy_save = shf_xy
    lhf_xy_save = lhf_xy
    call stepout(nstatsteps)
+   prec_xy_crm = 0.0
  
    ! randmultisine: add perturbation to fields
    if(dorandmultisine) then

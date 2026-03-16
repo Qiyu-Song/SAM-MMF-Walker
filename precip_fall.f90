@@ -197,6 +197,7 @@ do j=1,ny
          precinst(i,j) = precinst(i,j) - fz(1)*flagstat*coef
          precsfc(i,j) = precsfc(i,j) - fz(1)*flagstat ! For statistics
          prec_xy(i,j) = prec_xy(i,j) - fz(1)*flagstat ! For 2D output
+         prec_xy_crm(i,j) = prec_xy_crm(i,j) - fz(1)*flagstat
 
          if (iprec.lt.nprec) then
 

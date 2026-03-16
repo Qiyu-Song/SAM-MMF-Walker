@@ -8,6 +8,7 @@ implicit none
 integer :: ResetStorage
 
      prec_xy(:,:) = 0.
+     prec_xy_crm(:,:) = 0.
      shf_xy(:,:) = 0.
      lhf_xy(:,:) = 0.
      lwnt_xy(:,:) = 0.

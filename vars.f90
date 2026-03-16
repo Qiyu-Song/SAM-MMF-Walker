@@ -276,7 +276,7 @@ real :: diffuse_intensity = 0.
 
 integer :: hm_subcycle = 1
 
-
+real prec_xy_crm(nx,ny) ! mean precip. rate, just copy prec_xy codes, but doesn't depend on save2D
 real prec_xy_save(nx,ny)
 real shf_xy_save(nx,ny)
 real lhf_xy_save(nx,ny)

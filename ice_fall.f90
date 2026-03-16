@@ -118,7 +118,7 @@ do j=1,ny
      precinst(i,j) = precinst(i,j) - fz(i,j,1)
      precsfc(i,j) = precsfc(i,j) - fz(i,j,1)*coef ! For statistics
      prec_xy(i,j) = prec_xy(i,j) - fz(i,j,1)*coef ! For 2D output
-   !   prec_xy_save(i,j) = prec_xy(i,j)
+     prec_xy_crm(i,j) = prec_xy_crm(i,j) - fz(i,j,1)*coef
    end do
 end do
 
