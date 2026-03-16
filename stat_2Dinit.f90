@@ -11,6 +11,8 @@ integer :: ResetStorage
      prec_xy_crm(:,:) = 0.
      shf_xy(:,:) = 0.
      lhf_xy(:,:) = 0.
+     shf_xy_crm(:,:) = 0.
+     lhf_xy_crm(:,:) = 0.
      lwnt_xy(:,:) = 0.
      swnt_xy(:,:) = 0.
      lwntc_xy(:,:) = 0.

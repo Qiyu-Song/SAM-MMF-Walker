@@ -111,7 +111,7 @@ call hbuf_init()
 !------------------------------------------------------------------
 total_water_before = total_water()
 total_water_after = total_water()
-call stepout(-1)
+call stepout(-1)  ! 不会执行stat_2Dinit
 
 nstatis = nstat/nstatfrq
 nstat = nstatis * nstatfrq
@@ -414,10 +414,12 @@ do while(nstep.lt.nstop.and.nelapse.gt.0)
 !  collect statistics, write save-file, etc.
 
    prec_xy_save = prec_xy_crm
-   shf_xy_save = shf_xy
-   lhf_xy_save = lhf_xy
-   call stepout(nstatsteps)
+   shf_xy_save = shf_xy_crm
+   lhf_xy_save = lhf_xy_crm
+   call stepout(nstatsteps)  ! With save2Davg=false, stepout will call stat_2Dinit(0) every step. 
    prec_xy_crm = 0.0
+   shf_xy_crm(:,:) = 0.
+   lhf_xy_crm(:,:) = 0.
  
    ! randmultisine: add perturbation to fields
    if(dorandmultisine) then
