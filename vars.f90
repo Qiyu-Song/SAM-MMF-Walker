@@ -250,8 +250,8 @@ real qg0_hm(nzm)
 
 real ug0_press_modify(nzm)
 
-real u_hm_map_save(nsx, nzm)   ! 存储上一次hm_step之前的u
-real u_hm_updated_map_save(nsx, nzm)    ! 存储上一次hm_step更新之后的u
+real u_hm_map_save(nsx, nzm)   ! stores u before the previous hm_step
+real u_hm_updated_map_save(nsx, nzm)    ! stores u after the previous hm_step update
 real u_sub_map_save(nsx, nzm)
 real t_hm_map_save(nsx, nzm)
 real t_hm_updated_map_save(nsx, nzm)
@@ -288,5 +288,11 @@ logical :: CRM_dampingRM = .false.
 real u_domain_avg(nzm)
 real v_domain_avg(nzm)
 real w_domain_avg(nz)
+
+logical :: apply_hm_u_external_nudging = .false.
+real u_external_profile(nzm)
+logical :: u_external_profile_loaded = .false.
+character(len=256) :: large_u_profile_filename = 'large_u_profile.txt'      ! require absolute path 
+real tauls_large_scale 
 
 end module vars

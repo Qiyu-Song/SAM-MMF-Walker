@@ -55,6 +55,17 @@ subroutine host_model_init()
     ! end if
   end if
 
+  if (apply_hm_u_external_nudging) then
+    if (.not. u_external_profile_loaded) then
+      call load_external_u_profile(trim(large_u_profile_filename), u_external_profile, nzm, u_external_profile_loaded)
+      if (u_external_profile_loaded) then
+        print *, 'external u profile loaded successfully.'
+      else
+        print *, 'WARNING: external u profile not loaded.'
+      end if
+    end if
+  end if
+
 end subroutine host_model_init
 
 ! subroutine set_constant_sst_hm()
@@ -301,6 +312,11 @@ subroutine host_model_evolve( &
     call output_host_model_single_variable(tmp, 'dwdt1', 'dwdt_after_buoyancy' , 'm/s2', icyc)
     call output_host_model_single_variable(q_hm_map-qn0_in, 'qv0', 'qv0_in_for_buoyancy' , 'kg/kg', icyc)   
     call output_host_model_single_variable(tabs_map_hm, 'tabshm', 'tabs_map_hm_for_buoyancy' , 'K', icyc)
+
+    if (apply_hm_u_external_nudging) then
+      call nudge_u_to_external_profile(u_hm_map, dudt_hm, u_external_profile)
+      call output_host_model_single_variable(dudt_hm, 'dudt_nud', 'dudt_after_nudging' , 'm/s2', icyc)
+    end if
 
     ! 1-1) damping
     call damping_hm(u_hm_map, w_hm_map, dudt_hm, dwdt_hm)
@@ -1805,5 +1821,114 @@ subroutine idft_1d(x_in_complex, x_out_real, N_size)
         x_out_real(n) = real(sum_val) / real(N_size)
     end do
 end subroutine idft_1d
+
+subroutine load_external_u_profile(filename, arr, nlev, loaded)
+  implicit none
+
+  character(len=*), intent(in)  :: filename
+  integer, intent(in)           :: nlev
+  real, intent(out)             :: arr(nlev)
+  logical, intent(out)          :: loaded
+
+  integer :: unitno, ios, nfile, k
+  real :: tmp
+  real, allocatable :: buf(:)
+
+  arr(:) = 0.0
+  unitno = 99   ! open文件的时候给这个文件一个编号，之后read都用这个编号
+
+  ! ---- first pass: count how many rows ----
+  open(unit=unitno, file=filename, status='old', action='read', iostat=ios)
+  if (ios /= 0) then
+    print *, 'WARNING: cannot open file: ', trim(filename)
+    return
+  end if
+
+  nfile = 0
+  do
+    read(unitno, *, iostat=ios) tmp   ! 每行一个数字，读了放到tmp里
+    if (ios /= 0) exit     ! 读失败了，读到最后一排
+    nfile = nfile + 1
+  end do
+  close(unitno)
+
+  if (nfile <= 0) then
+    print *, 'WARNING: file is empty: ', trim(filename)
+    return
+  end if
+
+  allocate(buf(nfile))
+
+  ! ---- second pass: actually read values ----
+  open(unit=unitno, file=filename, status='old', action='read', iostat=ios)
+  if (ios /= 0) then
+    print *, 'WARNING: cannot reopen file: ', trim(filename)
+    deallocate(buf)
+    return
+  end if
+
+  do k = 1, nfile
+    read(unitno, *, iostat=ios) buf(k)
+    if (ios /= 0) then
+      print *, 'WARNING: bad format in file: ', trim(filename), ', line=', k
+      close(unitno)
+      deallocate(buf)
+      return
+    end if
+  end do
+  close(unitno)
+
+  ! ---- truncate or zero-pad ----
+  arr(:) = 0.0
+  arr(1:min(nlev, nfile)) = buf(1:min(nlev, nfile))
+
+  if (nfile > nlev) then
+    print *, 'WARNING: profile longer than target length; tail truncated.'
+  else if (nfile < nlev) then
+    print *, 'WARNING: profile shorter than target length; tail padded with zeros.'
+  end if
+
+  print *, 'target nlev = ', nlev
+  print *, 'nfile (rows in file) = ', nfile
+
+  print *, '----------------------------------------'
+  print *, 'loaded = ', loaded
+  print *, 'final profile used in arr(:):'
+  do k = 1, nlev
+    print *, 'k = ', k, ', arr(k) = ', arr(k)
+  end do
+  print *, '----------------------------------------'
+
+  loaded = .true.
+  deallocate(buf)
+
+end subroutine load_external_u_profile
+
+
+subroutine nudge_u_to_external_profile(u_hm_map, dudt_hm, u_external_profile)
+  use grid, only: nsx, nzm
+  use vars, only: tauls_large_scale
+  implicit none
+
+  real,    intent(in)    :: u_hm_map(nsx, nzm)
+  real,    intent(inout) :: dudt_hm(nsx, nzm)
+  real,    intent(in)    :: u_external_profile(nzm)
+
+  real :: u0_entire_domain(nzm)
+  integer :: i, k
+
+  do k = 1, nzm
+      u0_entire_domain(k) = sum( u_hm_map(:,k) ) / nsx
+  end do
+
+
+  do k = 1, nzm
+    do i = 1, nsx
+      dudt_hm(i,k) = dudt_hm(i,k) - (u0_entire_domain(k) - u_external_profile(k)) / tauls_large_scale
+    end do
+  end do
+
+end subroutine nudge_u_to_external_profile
+
 
 end module module_hostmodel

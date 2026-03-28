@@ -63,7 +63,7 @@ NAMELIST /KUANG_PARAMS/ dompiensemble, &
                 donoisywave, noiselevel, &
                 dompimmf, nstephostmodel, hm_spinup_step, &
                 nouvchatting, but_nudge_u, hm_only, diffuse_intensity,do_3step_adams,hm_subcycle, &
-                CRM_damping0, CRM_dampingRM
+                CRM_damping0, CRM_dampingRM, apply_hm_u_external_nudging, large_u_profile_filename, tauls_large_scale
 
 
                 
