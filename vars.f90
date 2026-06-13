@@ -295,4 +295,7 @@ logical :: u_external_profile_loaded = .false.
 character(len=256) :: large_u_profile_filename = 'large_u_profile.txt'      ! require absolute path 
 real tauls_large_scale 
 
+real dudt_subdomain_diffuse(nsx, nzm)  ! 用于直接diffuse subdomain-averaged 的u
+real :: diffuse_intensity_subdomain_large_scale = 0.
+
 end module vars

@@ -28,6 +28,7 @@ subroutine host_model_init()
     u_hm_updated_map_save = 0.
     dudt_hm_hist = 0.
     dwdt_hm_hist = 0.
+    dudt_subdomain_diffuse = 0.
     ! ----------------添加条带的初始场-----------------
     ! do k = 1, 3
     !   do i = 1, nsx
@@ -186,6 +187,7 @@ subroutine host_model_evolve( &
   logical :: do_3step_adams_tmp
   integer :: icyc
 
+
   call output_host_model_single_variable(prec_flx_map, 'PrecFlux', '1Prec_Rate_2Sensible_heat_flux_3Latent_heat_flux' , 'mm/day_W/m2', 0)
   u_out_map = 0.
   w_out_map = 0.
@@ -211,12 +213,16 @@ subroutine host_model_evolve( &
       u_hm_map = u_hm_updated_map_save
     else !全都通信的情况
       call face2center_U((u_hm_updated_map_save-u_hm_map_save),tmp1)  !u_hm_updated_map_save 上一次hm_step更新之后的u； u_hm_map_save 上一次hm_step更新之前的u
+      call output_host_model_single_variable(u_hm_updated_map_save-u_hm_map_save, 'deltaU', 'u_hm_updated-u_hm__at_face' , 'm/s', 0)
+      call output_host_model_single_variable(tmp1, 'dUhm_ctr', 'u_hm_updated-u_hm__at_center' , 'm/s', 0)
 
-      call output_host_model_single_variable(u_hm_updated_map_save-u_hm_map_save, 'deltaU', 'u_hm_updated-u_hm' , 'm/s', 0)
+      tmp1 = tmp1 + dt_hm * dudt_subdomain_diffuse
+      call output_host_model_single_variable(tmp1, 'dUtt_ctr', 'u_hm_updated-u_hm_at_center+diffusion__at_center' , 'm/s', 0)
 
       call center2face_U((u0_in-u_sub_map_save-tmp1), tmp2)
-
-      call output_host_model_single_variable(tmp2, 'delta2U', 'modification_to_Uhm' , 'm/s', 0)
+      call output_host_model_single_variable(u0_in-u_sub_map_save, 'dUsd_ctr', 'u0_in-u_sub_map_save__at_center' , 'm/s', 0)
+      call output_host_model_single_variable(u0_in-u_sub_map_save-tmp1, 'cnv_ad_c', 'convective_adjustment__at_center' , 'm/s', 0)
+      call output_host_model_single_variable(tmp2, 'delta2U', 'modification_to_Uhm' , 'm/s', 0)  ! cnv_ad_f
 
       u_hm_map = u_hm_updated_map_save + tmp2
       tmp_U = u_hm_map
@@ -270,12 +276,13 @@ subroutine host_model_evolve( &
   end if    ! if (hm_only) else
 
 
-  ! call output_host_model_single_variable(qp0_in, 'qp0in', 'qp0_in_for_buoyancy' , 'kg/kg', 0)
-  ! call output_host_model_single_variable(qn0_in, 'qn0in', 'qn0_in_for_buoyancy' , 'kg/kg', 0)
-  ! call output_host_model_single_variable(tabs0_in, 'tabs0in', 'tabs0_in_for_buoyancy' , 'K', 0)
-
-
   !----------------------------------------------------------------------------------
+
+  dudt_subdomain_diffuse = 0.0
+  call diffuse_u_subdomain_large_scale(u0_in, dudt_subdomain_diffuse)
+  call output_host_model_single_variable(dudt_subdomain_diffuse, 'dudt_subD', 'dudt_of_direct_diffusion_to_subdomains' , 'm/s2', 0)
+
+
   do icyc = 1,hm_subcycle
 
     dudt_hm = 0.0; dwdt_hm = 0.0
@@ -385,6 +392,12 @@ subroutine host_model_evolve( &
  
   call face2center_U((u_hm_map-u_hm_map_save), u_out_map)
   w_out_map = w_hm_map
+
+  call output_host_model_single_variable(u_out_map, 'U_OUT_hm', 'u_out_from_host_model_evolution' , 'm/s', 0)
+
+  ! ------------- 加上直接对subdomain的diffuse ------------- 
+  u_out_map = u_out_map + dt_hm * dudt_subdomain_diffuse
+  
 
 
   call output_host_model(u0_in, t0_in, q0_in,  &
@@ -1355,6 +1368,7 @@ subroutine output_host_model(u0_in, t0_in, q0_in,  &
     name='W_OUT'
     long_name='Output W W_hm_map'
     units='m/s'
+    call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
 
     nfields1_hm=nfields1_hm+1
     do k=1,nzm
@@ -1379,7 +1393,7 @@ subroutine output_host_model(u0_in, t0_in, q0_in,  &
     call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
 
     
-    call compress3D_hm(tmp,nsx,1,nzm,name,long_name,units)
+    
 
 
     if(nfields_hm.ne.nfields1_hm) then
@@ -1657,7 +1671,24 @@ subroutine buoyancy_only_in_hm(t_hm_map, q_hm_map, dwdt_hm)   !  qni_hm_map, qnl
 
 end subroutine buoyancy_only_in_hm
 
+subroutine diffuse_u_subdomain_large_scale(u_map,dudt_hm)
+    use vars
+    implicit none
+    real, intent(in)   :: u_map(nsx,nzm)
+    real, intent(inout)   :: dudt_hm(nsx,nzm)
 
+    integer i,ic,ib,k
+   
+    do k = 1,nzm-2
+      do i=1,nsx
+        ic = i + 1
+        if (ic > nsx) ic = ic - nsx
+        ib = i - 1
+        if (ib < 1) ib = ib + nsx
+        dudt_hm(i,k) = dudt_hm(i,k) + diffuse_intensity_subdomain_large_scale*(u_map(ic,k) -2*u_map(i,k) + u_map(ib,k))/dt_hm
+      end do
+    end do
+end subroutine diffuse_u_subdomain_large_scale
 
 
 subroutine diffuse_u(u_map,dudt_hm)
