@@ -180,7 +180,7 @@ subroutine host_model_evolve( &
   ! for advection of scalars
   real :: u1_hm_map(nsx, nzm),  w1_hm_map(nsx, nz)
   real :: p_phys(nsx, nzm)    ! 压力势（诊断用，可不输出）
-  real :: tmp(nsx, nzm), tmp1(nsx, nzm), tmp2(nsx, nzm), tmp_U(nsx, nzm), tmp_dudt(nsx, nzm)
+  real :: tmp(nsx, nzm), tmp1(nsx, nzm), tmp2(nsx, nzm), tmp3(nsx, nzm), tmp4(nsx, nzm), tmp_U(nsx, nzm), tmp_dudt(nsx, nzm)
   real :: u_hm_map(nsx, nzm),  w_hm_map(nsx, nz), t_hm_map(nsx, nzm), q_hm_map(nsx, nzm) ! , qni_hm_map(nsx, nzm) , qnl_hm_map(nsx, nzm), qpi_hm_map(nsx, nzm), qpl_hm_map(nsx, nzm)
   integer :: i, k
   real :: tabs_map_hm(nsx, nzm)
@@ -213,13 +213,20 @@ subroutine host_model_evolve( &
       u_hm_map = u_hm_updated_map_save
     else !全都通信的情况
       call face2center_U((u_hm_updated_map_save-u_hm_map_save),tmp1)  !u_hm_updated_map_save 上一次hm_step更新之后的u； u_hm_map_save 上一次hm_step更新之前的u
+      ! call face2center_U_inverse_filtered((u_hm_updated_map_save-u_hm_map_save),tmp1)
       call output_host_model_single_variable(u_hm_updated_map_save-u_hm_map_save, 'deltaU', 'u_hm_updated-u_hm__at_face' , 'm/s', 0)
       call output_host_model_single_variable(tmp1, 'dUhm_ctr', 'u_hm_updated-u_hm__at_center' , 'm/s', 0)
 
       tmp1 = tmp1 + dt_hm * dudt_subdomain_diffuse
       call output_host_model_single_variable(tmp1, 'dUtt_ctr', 'u_hm_updated-u_hm_at_center+diffusion__at_center' , 'm/s', 0)
 
-      call center2face_U((u0_in-u_sub_map_save-tmp1), tmp2)
+      ! call center2face_U((u0_in-u_sub_map_save-tmp1), tmp2)
+      ! call center2face_U_inverse((u0_in-u_sub_map_save-tmp1), tmp3)
+      call center2face_U_inverse_filtered((u0_in-u_sub_map_save-tmp1), tmp4)
+      ! call output_host_model_single_variable(tmp2, 'delta2Um', 'delta2U_mean' , 'm/s', 0)
+      ! call output_host_model_single_variable(tmp3, 'delta2Ui', 'delta2U_inverse' , 'm/s', 0)
+      call output_host_model_single_variable(tmp4, 'delta2Uf', 'delta2U_filtered_inverse' , 'm/s', 0)
+      tmp2 = 0.0 * tmp2 + 1.0 * tmp4
       call output_host_model_single_variable(u0_in-u_sub_map_save, 'dUsd_ctr', 'u0_in-u_sub_map_save__at_center' , 'm/s', 0)
       call output_host_model_single_variable(u0_in-u_sub_map_save-tmp1, 'cnv_ad_c', 'convective_adjustment__at_center' , 'm/s', 0)
       call output_host_model_single_variable(tmp2, 'delta2U', 'modification_to_Uhm' , 'm/s', 0)  ! cnv_ad_f
@@ -257,8 +264,13 @@ subroutine host_model_evolve( &
       
       ! ------------------------------------------------------------------------------------------------------------------
       call face2center_U((u_hm_map - tmp_U), u_press_modify)
+      ! call face2center_U_inverse_filtered((u_hm_map - tmp_U), u_press_modify)
       call output_host_model_single_variable(u_press_modify, 'U_modify', 'U_back_to_subdomain' , 'm/s', 0)
       u_sub_map_save = u0_in + u_press_modify
+
+      call face2center_U(u_hm_map, tmp1)
+      call output_host_model_single_variable(tmp1-u_sub_map_save, 'URc_m_Us', 'face2center_U_R_minus_u_sub_map_save', 'm/s', 0)
+      call output_host_model_single_variable(tmp1-u0_in, 'URc_m_U0', 'face2center_U_R_minus_U0_In', 'm/s', 0)
     end if   ! if (nouvchatting) else
 
     t_hm_map = t_hm_map_save + t0_in - t_sub_map_save
@@ -391,6 +403,8 @@ subroutine host_model_evolve( &
   q_out_map = q_hm_map - q_hm_map_save
  
   call face2center_U((u_hm_map-u_hm_map_save), u_out_map)
+  ! call face2center_U_smooth((u_hm_map-u_hm_map_save), u_out_map)
+  ! call face2center_U_inverse_filtered((u_hm_map-u_hm_map_save), u_out_map)
   w_out_map = w_hm_map
 
   call output_host_model_single_variable(u_out_map, 'U_OUT_hm', 'u_out_from_host_model_evolution' , 'm/s', 0)
@@ -1445,7 +1459,7 @@ subroutine output_host_model_single_variable(u0_in, v_name,v_longname,v_unit,icy
     timechar(k:k)='0'
     end do
 
-    print*, 'Rank=', rank, '*************begin output_host_model***************'
+    ! print*, 'Rank=', rank, '*************begin output_host_model***************'
 
     filetype = '.bin2D'
     filename='./OUT_3D/hm_output_'//trim(case)//'_'//trim(caseid)//&
@@ -1479,13 +1493,13 @@ subroutine output_host_model_single_variable(u0_in, v_name,v_longname,v_unit,icy
     call compress3D_hm(tmp,nsx,1,nzm, name,long_name,units)
 
     if(nfields_hm.ne.nfields1_hm) then
-        print*,'host model write_fields3D error: nfields_hm=',nfields_hm,'  nfields1_hm=',nfields1_hm
+        ! print*,'host model write_fields3D error: nfields_hm=',nfields_hm,'  nfields1_hm=',nfields1_hm
         call task_abort()
     end if
 
     close (46)
 
-    print*, 'Appending 3D data. file:'//filename
+    ! print*, 'Appending 3D data. file:'//filename
 
 end subroutine output_host_model_single_variable
 
@@ -1607,6 +1621,494 @@ subroutine face2center_U(u_face_map, u_center_map)
     u_center_map(1:nsx-1, :) = 0.5 * (u_face_map(1:nsx-1, :) + u_face_map(2:nsx, :))
     u_center_map(nsx,     :) = 0.5 * (u_face_map(nsx,     :) + u_face_map(1,     :))
 end subroutine face2center_U
+
+subroutine face2center_U_inverse(u_face_map, u_center_map)
+    use grid, only: nsx, nzm
+    implicit none
+    real, intent(in)   :: u_face_map(nsx,nzm)
+    real, intent(out)  :: u_center_map(nsx,nzm)
+    real :: u_face_filtered(nsx,nzm)
+    real :: nyq, cnyq, sign
+    integer :: i, k
+
+    u_face_filtered = u_face_map
+
+    if (mod(nsx, 2) == 0) then
+      do k = 1, nzm
+        nyq = 0.0
+        sign = 1.0
+        do i = 1, nsx
+          nyq = nyq + sign * u_face_map(i,k)
+          sign = -sign
+        end do
+        nyq = nyq / real(nsx)
+
+        sign = 1.0
+        do i = 1, nsx
+          u_face_filtered(i,k) = u_face_map(i,k) - sign * nyq
+          sign = -sign
+        end do
+      end do
+    end if
+
+    do k = 1, nzm
+      u_center_map(1,k) = 0.0
+      do i = 2, nsx
+        u_center_map(i,k) = 2.0 * u_face_filtered(i,k) - u_center_map(i-1,k)
+      end do
+
+      if (mod(nsx, 2) == 0) then
+        cnyq = 0.0
+        sign = 1.0
+        do i = 1, nsx
+          cnyq = cnyq + sign * u_center_map(i,k)
+          sign = -sign
+        end do
+        cnyq = cnyq / real(nsx)
+
+        sign = 1.0
+        do i = 1, nsx
+          u_center_map(i,k) = u_center_map(i,k) - sign * cnyq
+          sign = -sign
+        end do
+      end if
+    end do
+end subroutine face2center_U_inverse
+
+! subroutine face2center_U_inverse_filtered(u_face_map, u_center_map)
+!     use grid, only: nsx, nzm
+!     implicit none
+!     real, intent(in)   :: u_face_map(nsx,nzm)
+!     real, intent(out)  :: u_center_map(nsx,nzm)
+
+!     real :: u_face_filtered(nsx,nzm)
+!     real :: u4(nsx,nzm), u8(nsx,nzm), u12(nsx,nzm), u16(nsx,nzm)
+
+!     real, parameter :: w4  = 0.0
+!     real, parameter :: w8  = 0.0
+!     real, parameter :: w12 = 1.0
+!     real, parameter :: w16 = 0.0
+
+!     integer :: i, k
+!     integer :: ip1, ip2, ip3, ip4, ip5, ip6, ip7, ip8
+!     integer :: im1, im2, im3, im4, im5, im6, im7, im8
+
+!     do k = 1, nzm
+!       do i = 1, nsx
+!         ip1 = i + 1; if (ip1 > nsx) ip1 = ip1 - nsx
+!         ip2 = i + 2; if (ip2 > nsx) ip2 = ip2 - nsx
+!         ip3 = i + 3; if (ip3 > nsx) ip3 = ip3 - nsx
+!         ip4 = i + 4; if (ip4 > nsx) ip4 = ip4 - nsx
+!         ip5 = i + 5; if (ip5 > nsx) ip5 = ip5 - nsx
+!         ip6 = i + 6; if (ip6 > nsx) ip6 = ip6 - nsx
+!         ip7 = i + 7; if (ip7 > nsx) ip7 = ip7 - nsx
+!         ip8 = i + 8; if (ip8 > nsx) ip8 = ip8 - nsx
+
+!         im1 = i - 1; if (im1 < 1) im1 = im1 + nsx
+!         im2 = i - 2; if (im2 < 1) im2 = im2 + nsx
+!         im3 = i - 3; if (im3 < 1) im3 = im3 + nsx
+!         im4 = i - 4; if (im4 < 1) im4 = im4 + nsx
+!         im5 = i - 5; if (im5 < 1) im5 = im5 + nsx
+!         im6 = i - 6; if (im6 < 1) im6 = im6 + nsx
+!         im7 = i - 7; if (im7 < 1) im7 = im7 + nsx
+!         im8 = i - 8; if (im8 < 1) im8 = im8 + nsx
+
+!         ! Fourth-order Shapiro: G4(theta) = 1 - sin(theta/2)^4
+!         u4(i,k) = u_face_map(i,k) - &
+!           ( u_face_map(ip2,k) - 4.0*u_face_map(ip1,k) &
+!           + 6.0*u_face_map(i,k) &
+!           - 4.0*u_face_map(im1,k) + u_face_map(im2,k) ) / 16.0
+
+!         ! Eighth-order Shapiro: G8(theta) = 1 - sin(theta/2)^8
+!         u8(i,k) = u_face_map(i,k) - &
+!           ( u_face_map(ip4,k) - 8.0*u_face_map(ip3,k) &
+!           + 28.0*u_face_map(ip2,k) - 56.0*u_face_map(ip1,k) &
+!           + 70.0*u_face_map(i,k) &
+!           - 56.0*u_face_map(im1,k) + 28.0*u_face_map(im2,k) &
+!           - 8.0*u_face_map(im3,k) + u_face_map(im4,k) ) / 256.0
+
+!         ! Twelfth-order Shapiro: G12(theta) = 1 - sin(theta/2)^12
+!         u12(i,k) = u_face_map(i,k) - &
+!           ( u_face_map(ip6,k) - 12.0*u_face_map(ip5,k) &
+!           + 66.0*u_face_map(ip4,k) - 220.0*u_face_map(ip3,k) &
+!           + 495.0*u_face_map(ip2,k) - 792.0*u_face_map(ip1,k) &
+!           + 924.0*u_face_map(i,k) &
+!           - 792.0*u_face_map(im1,k) + 495.0*u_face_map(im2,k) &
+!           - 220.0*u_face_map(im3,k) + 66.0*u_face_map(im4,k) &
+!           - 12.0*u_face_map(im5,k) + u_face_map(im6,k) ) / 4096.0
+
+!         ! Sixteenth-order Shapiro: G16(theta) = 1 - sin(theta/2)^16
+!         u16(i,k) = u_face_map(i,k) - &
+!           ( u_face_map(ip8,k) - 16.0*u_face_map(ip7,k) &
+!           + 120.0*u_face_map(ip6,k) - 560.0*u_face_map(ip5,k) &
+!           + 1820.0*u_face_map(ip4,k) - 4368.0*u_face_map(ip3,k) &
+!           + 8008.0*u_face_map(ip2,k) - 11440.0*u_face_map(ip1,k) &
+!           + 12870.0*u_face_map(i,k) &
+!           - 11440.0*u_face_map(im1,k) + 8008.0*u_face_map(im2,k) &
+!           - 4368.0*u_face_map(im3,k) + 1820.0*u_face_map(im4,k) &
+!           - 560.0*u_face_map(im5,k) + 120.0*u_face_map(im6,k) &
+!           - 16.0*u_face_map(im7,k) + u_face_map(im8,k) ) / 65536.0
+
+!         u_face_filtered(i,k) = w4*u4(i,k) + w8*u8(i,k) + w12*u12(i,k) + w16*u16(i,k)
+!       end do
+!     end do
+
+!     call face2center_U_inverse(u_face_filtered, u_center_map)
+! end subroutine face2center_U_inverse_filtered
+
+! subroutine face2center_U_inverse_filtered(u_face_map, u_center_map) # 谱空间 taper
+!     use grid, only: nsx, nzm
+!     implicit none
+!     real, intent(in)   :: u_face_map(nsx,nzm)
+!     real, intent(out)  :: u_center_map(nsx,nzm)
+
+!     real :: u_avg(nsx,nzm)
+!     real :: u_inv(nsx,nzm)
+!     real :: corr(nsx,nzm)
+
+!     call face2center_U(u_face_map, u_avg)
+!     call face2center_U_inverse(u_face_map, u_inv)
+
+!     corr(:,:) = u_inv(:,:) - u_avg(:,:)
+
+!     call damp_high_wavenumber_taper(corr)
+
+!     u_center_map(:,:) = u_avg(:,:) + corr(:,:)
+! end subroutine face2center_U_inverse_filtered
+
+! subroutine face2center_U_inverse_filtered(u_face_map, u_center_map)
+!     use grid, only: nsx, nzm
+!     implicit none
+!     real, intent(in)   :: u_face_map(nsx,nzm)
+!     real, intent(out)  :: u_center_map(nsx,nzm)
+
+!     real :: u_face_filtered(nsx,nzm)
+
+!     u_face_filtered(:,:) = u_face_map(:,:)
+
+!     call damp_for_target_inverse_prefilter(u_face_filtered)
+!     call face2center_U_inverse(u_face_filtered, u_center_map)
+! end subroutine face2center_U_inverse_filtered
+
+! subroutine damp_for_target_inverse_prefilter(u_map)
+!     use grid, only: nsx, nzm
+!     implicit none
+
+!     real, intent(inout) :: u_map(nsx, nzm)
+
+!     complex, allocatable :: u_fft(:)
+!     real, allocatable :: temp_row(:)
+!     real :: pi, h_target, prefilter, k1, k2, kk, theta
+!     integer :: j, m, m_abs, k_nyq
+
+!     allocate(u_fft(nsx))
+!     allocate(temp_row(nsx))
+
+!     pi = acos(-1.0)
+!     k_nyq = nsx / 2
+
+!     ! Desired total face2center_U_inverse_filtered response:
+!     !   H = 1 for modes <= k1,
+!     !   H tapers smoothly to 0 between k1 and k2,
+!     !   H = 0 for modes >= k2.
+!     !
+!     ! Since face2center_U_inverse has response 1/cos(theta/2),
+!     ! prefilter each Fourier mode by H*cos(theta/2).
+!     k1 = 0.75 * real(k_nyq)
+!     k2 = 0.97 * real(k_nyq)
+
+!     do j = 1, nzm
+!         temp_row(:) = u_map(:,j)
+
+!         call dft_1d(temp_row, u_fft, nsx)
+
+!         do m = 1, nsx
+!             ! DFT index m corresponds to integer wavenumber:
+!             !   0, 1, 2, ..., nsx/2, ..., -2, -1
+!             m_abs = min(m-1, nsx-(m-1))
+!             kk = real(m_abs)
+
+!             if (kk <= k1) then
+!                 h_target = 1.0
+!             else if (kk >= k2) then
+!                 h_target = 0.0
+!             else
+!                 h_target = 0.5 * (1.0 + cos(pi * (kk-k1) / (k2-k1)))
+!             end if
+
+!             if (k_nyq > 0) then
+!                 theta = pi * kk / real(k_nyq)
+!             else
+!                 theta = 0.0
+!             end if
+
+!             prefilter = h_target * cos(0.5 * theta)
+!             u_fft(m) = prefilter * u_fft(m)
+!         end do
+
+!         call idft_1d(u_fft, u_map(:,j), nsx)
+!     end do
+
+!     deallocate(u_fft)
+!     deallocate(temp_row)
+! end subroutine damp_for_target_inverse_prefilter
+
+subroutine face2center_U_smooth(u_face_map, u_center_map)
+    use grid, only: nsx, nzm
+    implicit none
+    real, intent(in)   :: u_face_map(nsx,nzm)
+    real, intent(out)  :: u_center_map(nsx,nzm)
+    integer :: i, im1, im2, im3, ip1, ip2, ip3, ip4
+
+    do i = 1, nsx
+      im1 = i - 1; if (im1 < 1)   im1 = im1 + nsx
+      im2 = i - 2; if (im2 < 1)   im2 = im2 + nsx
+      im3 = i - 3; if (im3 < 1)   im3 = im3 + nsx
+      ip1 = i + 1; if (ip1 > nsx) ip1 = ip1 - nsx
+      ip2 = i + 2; if (ip2 > nsx) ip2 = ip2 - nsx
+      ip3 = i + 3; if (ip3 > nsx) ip3 = ip3 - nsx
+      ip4 = i + 4; if (ip4 > nsx) ip4 = ip4 - nsx
+
+      u_center_map(i,:) = 0.125  * u_face_map(im3,:) + &
+                          0.125   * u_face_map(im2,:) + &
+                          0.125  * u_face_map(im1,:) + &
+                          0.125    * u_face_map(i,  :) + &
+                          0.125   * u_face_map(ip1,:) + &
+                          0.125  * u_face_map(ip2,:) + &
+                          0.125   * u_face_map(ip3,:) + &
+                          0.125  * u_face_map(ip4,:)
+    end do
+end subroutine face2center_U_smooth
+
+subroutine center2face_U_inverse(u_center_map, u_face_map)
+    use grid, only: nsx, nzm
+    implicit none
+    real, intent(in)   :: u_center_map(nsx,nzm)
+    real, intent(out)  :: u_face_map(nsx,nzm)
+    real :: u_center_filtered(nsx,nzm)
+    real :: nyq, fnyq, sign
+    integer :: i, k
+
+    u_center_filtered = u_center_map
+
+    if (mod(nsx, 2) == 0) then
+      do k = 1, nzm
+        nyq = 0.0
+        sign = 1.0
+        do i = 1, nsx
+          nyq = nyq + sign * u_center_map(i,k)
+          sign = -sign
+        end do
+        nyq = nyq / real(nsx)
+
+        sign = 1.0
+        do i = 1, nsx
+          u_center_filtered(i,k) = u_center_map(i,k) - sign * nyq
+          sign = -sign
+        end do
+      end do
+    end if
+
+    do k = 1, nzm
+      u_face_map(1,k) = 0.0
+      do i = 1, nsx-1
+        u_face_map(i+1,k) = 2.0 * u_center_filtered(i,k) - u_face_map(i,k)
+      end do
+
+      if (mod(nsx, 2) == 0) then
+        fnyq = 0.0
+        sign = 1.0
+        do i = 1, nsx
+          fnyq = fnyq + sign * u_face_map(i,k)
+          sign = -sign
+        end do
+        fnyq = fnyq / real(nsx)
+
+        sign = 1.0
+        do i = 1, nsx
+          u_face_map(i,k) = u_face_map(i,k) - sign * fnyq
+          sign = -sign
+        end do
+      end if
+    end do
+end subroutine center2face_U_inverse
+
+! subroutine center2face_U_inverse_filtered(u_center_map, u_face_map)
+!     use grid, only: nsx, nzm
+!     implicit none
+!     real, intent(in)   :: u_center_map(nsx,nzm)
+!     real, intent(out)  :: u_face_map(nsx,nzm)
+
+!     real :: u_center_filtered(nsx,nzm)
+!     real :: u4(nsx,nzm), u8(nsx,nzm), u12(nsx,nzm), u16(nsx,nzm)
+
+!     real, parameter :: w4  = 0.0
+!     real, parameter :: w8  = 0.0
+!     real, parameter :: w12 = 0.0
+!     real, parameter :: w16 = 1.0
+
+!     integer :: i, k
+!     integer :: ip1, ip2, ip3, ip4, ip5, ip6, ip7, ip8
+!     integer :: im1, im2, im3, im4, im5, im6, im7, im8
+
+
+!     do k = 1, nzm
+!       do i = 1, nsx
+!         ip1 = i + 1; if (ip1 > nsx) ip1 = ip1 - nsx
+!         ip2 = i + 2; if (ip2 > nsx) ip2 = ip2 - nsx
+!         ip3 = i + 3; if (ip3 > nsx) ip3 = ip3 - nsx
+!         ip4 = i + 4; if (ip4 > nsx) ip4 = ip4 - nsx
+!         ip5 = i + 5; if (ip5 > nsx) ip5 = ip5 - nsx
+!         ip6 = i + 6; if (ip6 > nsx) ip6 = ip6 - nsx
+!         ip7 = i + 7; if (ip7 > nsx) ip7 = ip7 - nsx
+!         ip8 = i + 8; if (ip8 > nsx) ip8 = ip8 - nsx 
+
+!         im1 = i - 1; if (im1 < 1) im1 = im1 + nsx
+!         im2 = i - 2; if (im2 < 1) im2 = im2 + nsx
+!         im3 = i - 3; if (im3 < 1) im3 = im3 + nsx
+!         im4 = i - 4; if (im4 < 1) im4 = im4 + nsx
+!         im5 = i - 5; if (im5 < 1) im5 = im5 + nsx
+!         im6 = i - 6; if (im6 < 1) im6 = im6 + nsx
+!         im7 = i - 7; if (im7 < 1) im7 = im7 + nsx
+!         im8 = i - 8; if (im8 < 1) im8 = im8 + nsx
+
+!         ! Fourth-order Shapiro:
+!         ! G4(theta) = 1 - sin(theta/2)^4
+!         u4(i,k) = u_center_map(i,k) - &
+!           ( u_center_map(ip2,k) - 4.0*u_center_map(ip1,k) &
+!           + 6.0*u_center_map(i,k) &
+!           - 4.0*u_center_map(im1,k) + u_center_map(im2,k) ) / 16.0
+
+!         ! Eighth-order Shapiro:
+!         ! G8(theta) = 1 - sin(theta/2)^8
+!         u8(i,k) = u_center_map(i,k) - &
+!           ( u_center_map(ip4,k) - 8.0*u_center_map(ip3,k) &
+!           + 28.0*u_center_map(ip2,k) - 56.0*u_center_map(ip1,k) &
+!           + 70.0*u_center_map(i,k) &
+!           - 56.0*u_center_map(im1,k) + 28.0*u_center_map(im2,k) &
+!           - 8.0*u_center_map(im3,k) + u_center_map(im4,k) ) / 256.0
+
+!         ! Twelfth-order Shapiro:
+!         ! G12(theta) = 1 - sin(theta/2)^12
+!         u12(i,k) = u_center_map(i,k) - &
+!           ( u_center_map(ip6,k) - 12.0*u_center_map(ip5,k) &
+!           + 66.0*u_center_map(ip4,k) - 220.0*u_center_map(ip3,k) &
+!           + 495.0*u_center_map(ip2,k) - 792.0*u_center_map(ip1,k) &
+!           + 924.0*u_center_map(i,k) &
+!           - 792.0*u_center_map(im1,k) + 495.0*u_center_map(im2,k) &
+!           - 220.0*u_center_map(im3,k) + 66.0*u_center_map(im4,k) &
+!           - 12.0*u_center_map(im5,k) + u_center_map(im6,k) ) / 4096.0
+
+!         ! Sixteenth-order Shapiro:
+!         ! G16(theta) = 1 - sin(theta/2)^16
+!         u16(i,k) = u_center_map(i,k) - &
+!           ( u_center_map(ip8,k) - 16.0*u_center_map(ip7,k) &
+!           + 120.0*u_center_map(ip6,k) - 560.0*u_center_map(ip5,k) &
+!           + 1820.0*u_center_map(ip4,k) - 4368.0*u_center_map(ip3,k) &
+!           + 8008.0*u_center_map(ip2,k) - 11440.0*u_center_map(ip1,k) &
+!           + 12870.0*u_center_map(i,k) &
+!           - 11440.0*u_center_map(im1,k) + 8008.0*u_center_map(im2,k) &
+!           - 4368.0*u_center_map(im3,k) + 1820.0*u_center_map(im4,k) &
+!           - 560.0*u_center_map(im5,k) + 120.0*u_center_map(im6,k) &
+!           - 16.0*u_center_map(im7,k) + u_center_map(im8,k) ) / 65536.0
+
+!         u_center_filtered(i,k) = w4*u4(i,k) + w8*u8(i,k) + w12*u12(i,k) + w16*u16(i,k)
+!       end do
+!     end do
+
+!     call center2face_U_inverse(u_center_filtered, u_face_map)
+! end subroutine center2face_U_inverse_filtered
+
+
+subroutine center2face_U_inverse_filtered(u_center_map, u_face_map) ! 谱空间taper
+    use grid, only: nsx, nzm
+    implicit none
+    real, intent(in)   :: u_center_map(nsx,nzm)
+    real, intent(out)  :: u_face_map(nsx,nzm)
+
+    real :: u_avg(nsx,nzm)
+    real :: u_inv(nsx,nzm)
+    real :: corr(nsx,nzm)
+
+    call center2face_U(u_center_map, u_avg)
+    call center2face_U_inverse(u_center_map, u_inv)
+
+    corr(:,:) = u_inv(:,:) - u_avg(:,:)
+
+    call damp_high_wavenumber_taper(corr)
+
+    u_face_map(:,:) = u_avg(:,:) + corr(:,:)
+end subroutine center2face_U_inverse_filtered
+
+
+subroutine damp_high_wavenumber_taper(u_map)
+    use grid, only: nsx, nzm
+    implicit none
+
+    real, intent(inout) :: u_map(nsx, nzm)
+
+    complex, allocatable :: u_fft(:)
+    real, allocatable :: temp_row(:)
+    real :: pi, taper, k1, k2, kk
+    integer :: j, m, m_abs, k_nyq
+
+    allocate(u_fft(nsx))
+    allocate(temp_row(nsx))
+
+    pi = acos(-1.0)
+
+    k_nyq = nsx / 2
+
+    ! For nsx=160:
+  ! k_nyq = 80
+  ! k1 = 60: modes <= 60 are unchanged
+  ! k2 = 77.6: modes >= 78 are removed
+    k1 = 0.85 * real(k_nyq)
+    k2 = 0.99 * real(k_nyq)
+
+    do j = 1, nzm
+        temp_row(:) = u_map(:,j)
+
+        call dft_1d(temp_row, u_fft, nsx)
+
+        do m = 1, nsx
+            ! DFT index m corresponds to integer wavenumber:
+            !   0, 1, 2, ..., nsx/2, ..., -2, -1
+            m_abs = min(m-1, nsx-(m-1))
+            kk = real(m_abs)
+
+            if (kk <= k1) then
+                taper = 1.0
+            else if (kk >= k2) then
+                taper = 0.0
+            else
+                taper = 0.5 * (1.0 + cos(pi * (kk-k1) / (k2-k1)))
+            end if
+
+            u_fft(m) = taper * u_fft(m)
+        end do
+
+        call idft_1d(u_fft, u_map(:,j), nsx)
+    end do
+
+    deallocate(u_fft)
+    deallocate(temp_row)
+end subroutine damp_high_wavenumber_taper
+
+! subroutine center2face_U_inverse_filtered(u_center_map, u_face_map)
+!     use grid, only: nsx, nzm
+!     implicit none
+!     real, intent(in)   :: u_center_map(nsx,nzm)
+!     real, intent(out)  :: u_face_map(nsx,nzm)
+
+!     real :: u_center_filtered(nsx,nzm)
+
+!     u_center_filtered(:,:) = u_center_map(:,:)
+
+!     call damp_for_target_inverse_prefilter(u_center_filtered)
+!     call center2face_U_inverse(u_center_filtered, u_face_map)
+! end subroutine center2face_U_inverse_filtered
+
 
 subroutine hot_bubble(hm_step, t)
     use grid, only: nsx, nzm
@@ -1760,7 +2262,11 @@ subroutine modify_U_for_subdomain()
           u(i,j,k) = u(i,j,k)+ ug0_press_modify(k)
         end do
       end do
+      ! u0(k) = u0(k) + ug0_press_modify(k)
     end do
+
+    ! call boundaries(1)
+
 end subroutine modify_U_for_subdomain
 
 ! ----------------------傅里叶变换消最高频------------------------------------------
