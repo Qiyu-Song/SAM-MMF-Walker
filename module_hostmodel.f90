@@ -212,24 +212,24 @@ subroutine host_model_evolve( &
     if (nouvchatting) then
       u_hm_map = u_hm_updated_map_save
     else !全都通信的情况
-      call face2center_U((u_hm_updated_map_save-u_hm_map_save),tmp1)  !u_hm_updated_map_save 上一次hm_step更新之后的u； u_hm_map_save 上一次hm_step更新之前的u
-      ! call face2center_U_inverse_filtered((u_hm_updated_map_save-u_hm_map_save),tmp1)
-      call output_host_model_single_variable(u_hm_updated_map_save-u_hm_map_save, 'deltaU', 'u_hm_updated-u_hm__at_face' , 'm/s', 0)
-      call output_host_model_single_variable(tmp1, 'dUhm_ctr', 'u_hm_updated-u_hm__at_center' , 'm/s', 0)
+      ! call face2center_U((u_hm_updated_map_save-u_hm_map_save),tmp1)  !u_hm_updated_map_save 上一次hm_step更新之后的u； u_hm_map_save 上一次hm_step更新之前的u
+      call face2center_U_inverse_filtered((u_hm_updated_map_save-u_hm_map_save),tmp1)
+      ! call output_host_model_single_variable(u_hm_updated_map_save-u_hm_map_save, 'deltaU', 'u_hm_updated-u_hm__at_face' , 'm/s', 0)
+      ! call output_host_model_single_variable(tmp1, 'dUhm_ctr', 'u_hm_updated-u_hm__at_center' , 'm/s', 0)
 
-      tmp1 = tmp1 + dt_hm * dudt_subdomain_diffuse
-      call output_host_model_single_variable(tmp1, 'dUtt_ctr', 'u_hm_updated-u_hm_at_center+diffusion__at_center' , 'm/s', 0)
+      ! tmp1 = tmp1 + dt_hm * dudt_subdomain_diffuse  ! subdomain受到的总的"nudging" ！！这里是不是不太对啊
+      ! call output_host_model_single_variable(tmp1, 'dUtt_ctr', 'u_hm_updated-u_hm_at_center+diffusion__at_center' , 'm/s', 0)
 
       ! call center2face_U((u0_in-u_sub_map_save-tmp1), tmp2)
       ! call center2face_U_inverse((u0_in-u_sub_map_save-tmp1), tmp3)
-      call center2face_U_inverse_filtered((u0_in-u_sub_map_save-tmp1), tmp4)
+      call center2face_U_inverse_filtered((u0_in-u_sub_map_save-tmp1), tmp2)
       ! call output_host_model_single_variable(tmp2, 'delta2Um', 'delta2U_mean' , 'm/s', 0)
       ! call output_host_model_single_variable(tmp3, 'delta2Ui', 'delta2U_inverse' , 'm/s', 0)
-      call output_host_model_single_variable(tmp4, 'delta2Uf', 'delta2U_filtered_inverse' , 'm/s', 0)
-      tmp2 = 0.0 * tmp2 + 1.0 * tmp4
-      call output_host_model_single_variable(u0_in-u_sub_map_save, 'dUsd_ctr', 'u0_in-u_sub_map_save__at_center' , 'm/s', 0)
-      call output_host_model_single_variable(u0_in-u_sub_map_save-tmp1, 'cnv_ad_c', 'convective_adjustment__at_center' , 'm/s', 0)
-      call output_host_model_single_variable(tmp2, 'delta2U', 'modification_to_Uhm' , 'm/s', 0)  ! cnv_ad_f
+      ! call output_host_model_single_variable(tmp4, 'delta2Uf', 'delta2U_filtered_inverse' , 'm/s', 0)
+      ! tmp2 = 0.0 * tmp2 + 1.0 * tmp4
+      ! call output_host_model_single_variable(u0_in-u_sub_map_save, 'dUsd_ctr', 'u0_in-u_sub_map_save__at_center' , 'm/s', 0)
+      ! call output_host_model_single_variable(u0_in-u_sub_map_save-tmp1, 'cnv_ad_c', 'convective_adjustment__at_center' , 'm/s', 0)
+      ! call output_host_model_single_variable(tmp2, 'delta2U', 'modification_to_Uhm' , 'm/s', 0)  ! cnv_ad_f
 
       u_hm_map = u_hm_updated_map_save + tmp2
       tmp_U = u_hm_map
@@ -247,10 +247,10 @@ subroutine host_model_evolve( &
                                 dudt_hm, dwdt_hm, p_phys)
       do_3step_adams = do_3step_adams_tmp
 
-      call output_host_model_single_variable(dudt_hm, 'dudt_R', 'dudt_after_pressure_R' , 'm/s2', 0)
+      ! call output_host_model_single_variable(dudt_hm, 'dudt_R', 'dudt_after_pressure_R' , 'm/s2', 0)
       tmp(:, :) = dwdt_hm(:,1:nzm)
-      call output_host_model_single_variable(tmp, 'dwdt_R', 'dwdt_after_pressure_R' , 'm/s2', 0)
-      call output_host_model_single_variable(p_phys, 'p_phys_R', 'Pressure_Perturbation_R' , 'Pa', 0)
+      ! call output_host_model_single_variable(tmp, 'dwdt_R', 'dwdt_after_pressure_R' , 'm/s2', 0)
+      ! call output_host_model_single_variable(p_phys, 'p_phys_R', 'Pressure_Perturbation_R' , 'Pa', 0)
 
       ! add modification terms to u/w fields
       ! this will be the final state of the previous step / the initial state for the next step for the host model. 
@@ -260,17 +260,15 @@ subroutine host_model_evolve( &
 
       call output_host_model_single_variable(u_hm_map, 'U_R', 'U_after_adams_R' , 'm/s', 0)
       tmp(:, :) = w_hm_map(:,1:nzm)
-      call output_host_model_single_variable(tmp, 'W_R', 'W_after_adams_R' , 'm/s', 0)
+      ! call output_host_model_single_variable(tmp, 'W_R', 'W_after_adams_R' , 'm/s', 0)
       
       ! ------------------------------------------------------------------------------------------------------------------
-      call face2center_U((u_hm_map - tmp_U), u_press_modify)
-      ! call face2center_U_inverse_filtered((u_hm_map - tmp_U), u_press_modify)
-      call output_host_model_single_variable(u_press_modify, 'U_modify', 'U_back_to_subdomain' , 'm/s', 0)
+      ! call face2center_U((u_hm_map - tmp_U), u_press_modify)
+      call face2center_U_inverse_filtered((u_hm_map - tmp_U), u_press_modify)
+      ! call output_host_model_single_variable(u_press_modify, 'U_modify', 'U_back_to_subdomain' , 'm/s', 0)
       u_sub_map_save = u0_in + u_press_modify
 
-      call face2center_U(u_hm_map, tmp1)
-      call output_host_model_single_variable(tmp1-u_sub_map_save, 'URc_m_Us', 'face2center_U_R_minus_u_sub_map_save', 'm/s', 0)
-      call output_host_model_single_variable(tmp1-u0_in, 'URc_m_U0', 'face2center_U_R_minus_U0_In', 'm/s', 0)
+
     end if   ! if (nouvchatting) else
 
     t_hm_map = t_hm_map_save + t0_in - t_sub_map_save
@@ -292,7 +290,7 @@ subroutine host_model_evolve( &
 
   dudt_subdomain_diffuse = 0.0
   call diffuse_u_subdomain_large_scale(u0_in, dudt_subdomain_diffuse)
-  call output_host_model_single_variable(dudt_subdomain_diffuse, 'dudt_subD', 'dudt_of_direct_diffusion_to_subdomains' , 'm/s2', 0)
+  ! call output_host_model_single_variable(dudt_subdomain_diffuse, 'dudt_subD', 'dudt_of_direct_diffusion_to_subdomains' , 'm/s2', 0)
 
 
   do icyc = 1,hm_subcycle
@@ -328,21 +326,21 @@ subroutine host_model_evolve( &
     end if
 
     tmp(:, :) = dwdt_hm(:,1:nzm)
-    call output_host_model_single_variable(tmp, 'dwdt1', 'dwdt_after_buoyancy' , 'm/s2', icyc)
-    call output_host_model_single_variable(q_hm_map-qn0_in, 'qv0', 'qv0_in_for_buoyancy' , 'kg/kg', icyc)   
-    call output_host_model_single_variable(tabs_map_hm, 'tabshm', 'tabs_map_hm_for_buoyancy' , 'K', icyc)
+    ! call output_host_model_single_variable(tmp, 'dwdt1', 'dwdt_after_buoyancy' , 'm/s2', icyc)
+    ! call output_host_model_single_variable(q_hm_map-qn0_in, 'qv0', 'qv0_in_for_buoyancy' , 'kg/kg', icyc)   
+    ! call output_host_model_single_variable(tabs_map_hm, 'tabshm', 'tabs_map_hm_for_buoyancy' , 'K', icyc)
 
     if (apply_hm_u_external_nudging) then
       call nudge_u_to_external_profile(u_hm_map, dudt_hm, u_external_profile)
-      call output_host_model_single_variable(dudt_hm, 'dudt_nud', 'dudt_after_nudging' , 'm/s2', icyc)
+      ! call output_host_model_single_variable(dudt_hm, 'dudt_nud', 'dudt_after_nudging' , 'm/s2', icyc)
     end if
 
     ! 1-1) damping
     call damping_hm(u_hm_map, w_hm_map, dudt_hm, dwdt_hm)
 
-    call output_host_model_single_variable(dudt_hm, 'dudt_dam', 'dudt_after_damping' , 'm/s2', icyc)
+    ! call output_host_model_single_variable(dudt_hm, 'dudt_dam', 'dudt_after_damping' , 'm/s2', icyc)
     tmp(:, :) = dwdt_hm(:,1:nzm)
-    call output_host_model_single_variable(tmp, 'dwdt_dam', 'dwdt_after_damping' , 'm/s2', icyc)
+    ! call output_host_model_single_variable(tmp, 'dwdt_dam', 'dwdt_after_damping' , 'm/s2', icyc)
 
 
     tmp_dudt = dudt_hm
@@ -350,19 +348,19 @@ subroutine host_model_evolve( &
     call diffuse_w(w_hm_map, dwdt_hm)
     ! call diffuse_TQ(t_hm_map)
     ! call diffuse_TQ(q_hm_map)
-    call output_host_model_single_variable(dudt_hm-tmp_dudt, 'dudt_dif', 'dudt_diffuse' , 'm/s2', icyc)
+    ! call output_host_model_single_variable(dudt_hm-tmp_dudt, 'dudt_dif', 'dudt_diffuse' , 'm/s2', icyc)
 
 
-    call output_host_model_single_variable(u_hm_map, 'u_smooth', 'u_after_diffusion' , 'm/s', icyc)
+    ! call output_host_model_single_variable(u_hm_map, 'u_smooth', 'u_after_diffusion' , 'm/s', icyc)
 
 
     ! 2) 动量平流（2D，二阶中心）
     call advect_mom_hm(u_hm_map,  w_hm_map, &
                       dudt_hm, dwdt_hm)
 
-    call output_host_model_single_variable(dudt_hm, 'dudt2', 'dudt_after_advect_mom' , 'm/s2', icyc)
+    ! call output_host_model_single_variable(dudt_hm, 'dudt2', 'dudt_after_advect_mom' , 'm/s2', icyc)
     tmp(:, :) = dwdt_hm(:,1:nzm)
-    call output_host_model_single_variable(tmp, 'dwdt2', 'dwdt_after_advect_mom' , 'm/s2', icyc)
+    ! call output_host_model_single_variable(tmp, 'dwdt2', 'dwdt_after_advect_mom' , 'm/s2', icyc)
 
     
 
@@ -370,29 +368,29 @@ subroutine host_model_evolve( &
     call pressure_hm(u_hm_map, w_hm_map, &
                               dudt_hm, dwdt_hm, p_phys)
 
-    call output_host_model_single_variable(dudt_hm, 'dudt3', 'dudt_after_pressure' , 'm/s2', icyc)
+    ! call output_host_model_single_variable(dudt_hm, 'dudt3', 'dudt_after_pressure' , 'm/s2', icyc)
     tmp(:, :) = dwdt_hm(:,1:nzm)
-    call output_host_model_single_variable(tmp, 'dwdt3', 'dwdt_after_pressure' , 'm/s2', icyc)
+    ! call output_host_model_single_variable(tmp, 'dwdt3', 'dwdt_after_pressure' , 'm/s2', icyc)
     call output_host_model_single_variable(p_phys, 'p_phys3', 'Pressure_Perturbation' , 'Pa', icyc)
 
     ! 4) AB 时间推进
     call adams_hm(u_hm_map, w_hm_map, dudt_hm,dwdt_hm, &
                     u1_hm_map, w1_hm_map)
 
-    call output_host_model_single_variable(u_hm_map, 'U4', 'U_after_adams' , 'm/s', icyc)
+    ! call output_host_model_single_variable(u_hm_map, 'U4', 'U_after_adams' , 'm/s', icyc)
 
     tmp(:, :) = w_hm_map(:,1:nzm)
-    call output_host_model_single_variable(tmp, 'W4', 'W_after_adams' , 'm/s', icyc)
-    call output_host_model_single_variable(u1_hm_map, 'U41', 'U1_after_adams' , 'm/s', icyc)
+    ! call output_host_model_single_variable(tmp, 'W4', 'W_after_adams' , 'm/s', icyc)
+    ! call output_host_model_single_variable(u1_hm_map, 'U41', 'U1_after_adams' , 'm/s', icyc)
 
     tmp(:, :) = w1_hm_map(:,1:nzm)
-    call output_host_model_single_variable(tmp, 'W41', 'W1_after_adams' , 'm/s', icyc)
+    ! call output_host_model_single_variable(tmp, 'W41', 'W1_after_adams' , 'm/s', icyc)
     ! 5) 标量平流
     call advect_scalars_hm(t_hm_map, u1_hm_map, w1_hm_map)
     call advect_scalars_hm(q_hm_map, u1_hm_map, w1_hm_map)
  
-    call output_host_model_single_variable(t_hm_map, 't4', 't_after_advect' , 'K', icyc)
-    call output_host_model_single_variable(q_hm_map, 'q4', 'q_after_advect' , 'kg/kg', icyc)
+    ! call output_host_model_single_variable(t_hm_map, 't4', 't_after_advect' , 'K', icyc)
+    ! call output_host_model_single_variable(q_hm_map, 'q4', 'q_after_advect' , 'kg/kg', icyc)
   end do
 
   u_hm_updated_map_save = u_hm_map
@@ -402,12 +400,12 @@ subroutine host_model_evolve( &
   t_out_map = t_hm_map - t_hm_map_save
   q_out_map = q_hm_map - q_hm_map_save
  
-  call face2center_U((u_hm_map-u_hm_map_save), u_out_map)
+  ! call face2center_U((u_hm_map-u_hm_map_save), u_out_map)
   ! call face2center_U_smooth((u_hm_map-u_hm_map_save), u_out_map)
-  ! call face2center_U_inverse_filtered((u_hm_map-u_hm_map_save), u_out_map)
+  call face2center_U_inverse_filtered((u_hm_map-u_hm_map_save), u_out_map)
   w_out_map = w_hm_map
 
-  call output_host_model_single_variable(u_out_map, 'U_OUT_hm', 'u_out_from_host_model_evolution' , 'm/s', 0)
+  ! call output_host_model_single_variable(u_out_map, 'U_OUT_hm', 'u_out_from_host_model_evolution' , 'm/s', 0)
 
   ! ------------- 加上直接对subdomain的diffuse ------------- 
   u_out_map = u_out_map + dt_hm * dudt_subdomain_diffuse
@@ -1776,21 +1774,21 @@ end subroutine face2center_U_inverse
 !     u_center_map(:,:) = u_avg(:,:) + corr(:,:)
 ! end subroutine face2center_U_inverse_filtered
 
-! subroutine face2center_U_inverse_filtered(u_face_map, u_center_map)
-!     use grid, only: nsx, nzm
-!     implicit none
-!     real, intent(in)   :: u_face_map(nsx,nzm)
-!     real, intent(out)  :: u_center_map(nsx,nzm)
+subroutine face2center_U_inverse_filtered(u_face_map, u_center_map)
+    use grid, only: nsx, nzm
+    implicit none
+    real, intent(in)   :: u_face_map(nsx,nzm)
+    real, intent(out)  :: u_center_map(nsx,nzm)
 
-!     real :: u_face_filtered(nsx,nzm)
+    real :: u_face_filtered(nsx,nzm)
 
-!     u_face_filtered(:,:) = u_face_map(:,:)
+    u_face_filtered(:,:) = u_face_map(:,:)
 
-!     call damp_for_target_inverse_prefilter(u_face_filtered)
-!     call face2center_U_inverse(u_face_filtered, u_center_map)
-! end subroutine face2center_U_inverse_filtered
+    call damp_for_target_inverse_prefilter(u_face_filtered)
+    call face2center_U_inverse(u_face_filtered, u_center_map)
+end subroutine face2center_U_inverse_filtered
 
-! subroutine damp_for_target_inverse_prefilter(u_map)
+! subroutine damp_for_target_inverse_prefilter(u_map)  ! version1, 好像跑得比较慢
 !     use grid, only: nsx, nzm
 !     implicit none
 
@@ -1814,7 +1812,7 @@ end subroutine face2center_U_inverse
 !     !
 !     ! Since face2center_U_inverse has response 1/cos(theta/2),
 !     ! prefilter each Fourier mode by H*cos(theta/2).
-!     k1 = 0.75 * real(k_nyq)
+!     k1 = 0.9 * real(k_nyq)
 !     k2 = 0.97 * real(k_nyq)
 
 !     do j = 1, nzm
@@ -1852,6 +1850,81 @@ end subroutine face2center_U_inverse
 !     deallocate(u_fft)
 !     deallocate(temp_row)
 ! end subroutine damp_for_target_inverse_prefilter
+
+subroutine damp_for_target_inverse_prefilter(u_map)   ! version2, 换成了fft
+    use grid, only: nsx, nzm
+    implicit none
+
+    real, intent(inout) :: u_map(nsx, nzm)
+
+    integer, parameter :: nx2 = nsx + 2
+
+    real(8) :: f_fft(nx2, nzm)
+    real(8) :: work_fft(nx2, nzm)
+    real(8) :: trigs(3*nsx/2 + 1)
+    integer :: ifax(13)
+
+    real(8) :: pi, kk, theta
+    real(8) :: k1, k2, h_target, prefilter
+    integer :: m, ire, iim, k_nyq
+
+    if (mod(nsx, 2) /= 0) then
+        print *, 'ERROR: filtered inverse requires even nsx'
+        stop
+    end if
+
+    pi = acos(-1.0d0)
+    k_nyq = nsx / 2
+
+    k1 = 0.985d0 * dble(k_nyq)
+    k2 = 0.995d0 * dble(k_nyq)
+
+    ! FFT991 requires two extra packed-spectrum entries.
+    f_fft(:,:) = 0.0d0
+    f_fft(1:nsx,:) = dble(u_map(:,:))
+
+    call fftfax_crm(nsx, ifax, trigs)
+
+    ! Transform all nzm rows together:
+    ! inc=1, jump=nx2, n=nsx, lot=nzm, isign=-1.
+    call fft991_crm( &
+        f_fft(1,1), work_fft(1,1), trigs, ifax, &
+        1, nx2, nsx, nzm, -1)
+
+    ! Packed real spectrum:
+    ! mode m -> real part at 2*m+1, imaginary part at 2*m+2.
+    do m = 0, k_nyq
+        kk = dble(m)
+
+        if (kk <= k1) then
+            h_target = 1.0d0
+        else if (kk >= k2) then
+            h_target = 0.0d0
+        else
+            h_target = 0.5d0 * &
+                (1.0d0 + cos(pi * (kk-k1)/(k2-k1)))
+        end if
+
+        theta = pi * kk / dble(k_nyq)
+
+        ! Prefilter × inverse reconstruction = H_target.
+        prefilter = h_target * cos(0.5d0 * theta)
+
+        ire = 2*m + 1
+        iim = ire + 1
+
+        f_fft(ire,:) = prefilter * f_fft(ire,:)
+        f_fft(iim,:) = prefilter * f_fft(iim,:)
+    end do
+
+    call fft991_crm( &
+        f_fft(1,1), work_fft(1,1), trigs, ifax, &
+        1, nx2, nsx, nzm, +1)
+
+    u_map(:,:) = real(f_fft(1:nsx,:))
+
+end subroutine damp_for_target_inverse_prefilter
+
 
 subroutine face2center_U_smooth(u_face_map, u_center_map)
     use grid, only: nsx, nzm
@@ -2020,94 +2093,94 @@ end subroutine center2face_U_inverse
 ! end subroutine center2face_U_inverse_filtered
 
 
-subroutine center2face_U_inverse_filtered(u_center_map, u_face_map) ! 谱空间taper
-    use grid, only: nsx, nzm
-    implicit none
-    real, intent(in)   :: u_center_map(nsx,nzm)
-    real, intent(out)  :: u_face_map(nsx,nzm)
-
-    real :: u_avg(nsx,nzm)
-    real :: u_inv(nsx,nzm)
-    real :: corr(nsx,nzm)
-
-    call center2face_U(u_center_map, u_avg)
-    call center2face_U_inverse(u_center_map, u_inv)
-
-    corr(:,:) = u_inv(:,:) - u_avg(:,:)
-
-    call damp_high_wavenumber_taper(corr)
-
-    u_face_map(:,:) = u_avg(:,:) + corr(:,:)
-end subroutine center2face_U_inverse_filtered
-
-
-subroutine damp_high_wavenumber_taper(u_map)
-    use grid, only: nsx, nzm
-    implicit none
-
-    real, intent(inout) :: u_map(nsx, nzm)
-
-    complex, allocatable :: u_fft(:)
-    real, allocatable :: temp_row(:)
-    real :: pi, taper, k1, k2, kk
-    integer :: j, m, m_abs, k_nyq
-
-    allocate(u_fft(nsx))
-    allocate(temp_row(nsx))
-
-    pi = acos(-1.0)
-
-    k_nyq = nsx / 2
-
-    ! For nsx=160:
-  ! k_nyq = 80
-  ! k1 = 60: modes <= 60 are unchanged
-  ! k2 = 77.6: modes >= 78 are removed
-    k1 = 0.85 * real(k_nyq)
-    k2 = 0.99 * real(k_nyq)
-
-    do j = 1, nzm
-        temp_row(:) = u_map(:,j)
-
-        call dft_1d(temp_row, u_fft, nsx)
-
-        do m = 1, nsx
-            ! DFT index m corresponds to integer wavenumber:
-            !   0, 1, 2, ..., nsx/2, ..., -2, -1
-            m_abs = min(m-1, nsx-(m-1))
-            kk = real(m_abs)
-
-            if (kk <= k1) then
-                taper = 1.0
-            else if (kk >= k2) then
-                taper = 0.0
-            else
-                taper = 0.5 * (1.0 + cos(pi * (kk-k1) / (k2-k1)))
-            end if
-
-            u_fft(m) = taper * u_fft(m)
-        end do
-
-        call idft_1d(u_fft, u_map(:,j), nsx)
-    end do
-
-    deallocate(u_fft)
-    deallocate(temp_row)
-end subroutine damp_high_wavenumber_taper
-
-! subroutine center2face_U_inverse_filtered(u_center_map, u_face_map)
+! subroutine center2face_U_inverse_filtered(u_center_map, u_face_map) ! 谱空间taper
 !     use grid, only: nsx, nzm
 !     implicit none
 !     real, intent(in)   :: u_center_map(nsx,nzm)
 !     real, intent(out)  :: u_face_map(nsx,nzm)
 
-!     real :: u_center_filtered(nsx,nzm)
+!     real :: u_avg(nsx,nzm)
+!     real :: u_inv(nsx,nzm)
+!     real :: corr(nsx,nzm)
 
-!     u_center_filtered(:,:) = u_center_map(:,:)
+!     call center2face_U(u_center_map, u_avg)
+!     call center2face_U_inverse(u_center_map, u_inv)
 
-!     call damp_for_target_inverse_prefilter(u_center_filtered)
-!     call center2face_U_inverse(u_center_filtered, u_face_map)
+!     corr(:,:) = u_inv(:,:) - u_avg(:,:)
+
+!     call damp_high_wavenumber_taper(corr)
+
+!     u_face_map(:,:) = u_avg(:,:) + corr(:,:)
 ! end subroutine center2face_U_inverse_filtered
+
+
+! subroutine damp_high_wavenumber_taper(u_map)
+!     use grid, only: nsx, nzm
+!     implicit none
+
+!     real, intent(inout) :: u_map(nsx, nzm)
+
+!     complex, allocatable :: u_fft(:)
+!     real, allocatable :: temp_row(:)
+!     real :: pi, taper, k1, k2, kk
+!     integer :: j, m, m_abs, k_nyq
+
+!     allocate(u_fft(nsx))
+!     allocate(temp_row(nsx))
+
+!     pi = acos(-1.0)
+
+!     k_nyq = nsx / 2
+
+!     ! For nsx=160:
+!   ! k_nyq = 80
+!   ! k1 = 60: modes <= 60 are unchanged
+!   ! k2 = 77.6: modes >= 78 are removed
+!     k1 = 0.85 * real(k_nyq)
+!     k2 = 0.99 * real(k_nyq)
+
+!     do j = 1, nzm
+!         temp_row(:) = u_map(:,j)
+
+!         call dft_1d(temp_row, u_fft, nsx)
+
+!         do m = 1, nsx
+!             ! DFT index m corresponds to integer wavenumber:
+!             !   0, 1, 2, ..., nsx/2, ..., -2, -1
+!             m_abs = min(m-1, nsx-(m-1))
+!             kk = real(m_abs)
+
+!             if (kk <= k1) then
+!                 taper = 1.0
+!             else if (kk >= k2) then
+!                 taper = 0.0
+!             else
+!                 taper = 0.5 * (1.0 + cos(pi * (kk-k1) / (k2-k1)))
+!             end if
+
+!             u_fft(m) = taper * u_fft(m)
+!         end do
+
+!         call idft_1d(u_fft, u_map(:,j), nsx)
+!     end do
+
+!     deallocate(u_fft)
+!     deallocate(temp_row)
+! end subroutine damp_high_wavenumber_taper
+
+subroutine center2face_U_inverse_filtered(u_center_map, u_face_map)
+    use grid, only: nsx, nzm
+    implicit none
+    real, intent(in)   :: u_center_map(nsx,nzm)
+    real, intent(out)  :: u_face_map(nsx,nzm)
+
+    real :: u_center_filtered(nsx,nzm)
+
+    u_center_filtered(:,:) = u_center_map(:,:)
+
+    call damp_for_target_inverse_prefilter(u_center_filtered)
+    call center2face_U_inverse(u_center_filtered, u_face_map)
+end subroutine center2face_U_inverse_filtered
 
 
 subroutine hot_bubble(hm_step, t)
