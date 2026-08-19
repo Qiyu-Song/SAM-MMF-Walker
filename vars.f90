@@ -298,6 +298,6 @@ real tauls_large_scale
 real dudt_subdomain_diffuse(nsx, nzm)  ! 用于直接diffuse subdomain-averaged 的u
 real :: diffuse_intensity_subdomain_large_scale = 0.
 
-logical :: shift_subdomain = .false.
+logical :: subdomain_center_at_hm_u_center = .true. ! .true.  : interpolate U; T/Q are collocated with subdomain centers   ! .false. : U is collocated with subdomain centers; interpolate T/Q
 
 end module vars

@@ -64,7 +64,7 @@ NAMELIST /KUANG_PARAMS/ dompiensemble, &
                 dompimmf, nstephostmodel, hm_spinup_step, &
                 nouvchatting, but_nudge_u, hm_only, diffuse_intensity,do_3step_adams,hm_subcycle, &
                 CRM_damping0, CRM_dampingRM, apply_hm_u_external_nudging, large_u_profile_filename, tauls_large_scale, &
-                diffuse_intensity_subdomain_large_scale, shift_subdomain
+                diffuse_intensity_subdomain_large_scale, subdomain_center_at_hm_u_center
 
 
                 
@@ -263,7 +263,7 @@ end if
         end if
 
         if(dompimmf) then
-          dx_hm = dx * nx / 4.0  ! 如果要改分辨率
+          dx_hm = dx * nx / 1.0  ! 如果要改分辨率
           dt_hm = dt * nstephostmodel
           dt_hm_subcycle = dt_hm / hm_subcycle
           if(masterproc) then

@@ -187,6 +187,48 @@ subroutine host_model_evolve( &
   logical :: do_3step_adams_tmp
   integer :: icyc
 
+  real :: qn0_in_hm(nsx, nzm)
+  real :: qp0_in_hm(nsx, nzm)
+  real :: qni0_in_hm(nsx, nzm)
+  real :: qnl0_in_hm(nsx, nzm)
+  real :: qpi0_in_hm(nsx, nzm)
+  real :: qpl0_in_hm(nsx, nzm)
+
+  ! real :: u_nyquist(nsx,nzm)
+  ! real :: t_nyquist(nsx,nzm)
+  ! real :: q_nyquist(nsx,nzm)
+
+  if (subdomain_center_at_hm_u_center) then
+    ! Original layout: CRM scalars are already collocated with host scalars.
+    qn0_in_hm  = qn0_in
+    qp0_in_hm  = qp0_in
+    qni0_in_hm = qni0_in
+    qnl0_in_hm = qnl0_in
+    qpi0_in_hm = qpi0_in
+    qpl0_in_hm = qpl0_in
+  else
+    call face2center_U(qn0_in,  qn0_in_hm)
+    call face2center_U(qp0_in,  qp0_in_hm)
+    call face2center_U(qni0_in, qni0_in_hm)
+    call face2center_U(qnl0_in, qnl0_in_hm)
+    call face2center_U(qpi0_in, qpi0_in_hm)
+    call face2center_U(qpl0_in, qpl0_in_hm)
+
+    ! call face2center_U_inverse_filtered(qn0_in,  qn0_in_hm)
+    ! call face2center_U_inverse_filtered(qp0_in,  qp0_in_hm)
+    ! call face2center_U_inverse_filtered(qni0_in, qni0_in_hm)
+    ! call face2center_U_inverse_filtered(qnl0_in, qnl0_in_hm)
+    ! call face2center_U_inverse_filtered(qpi0_in, qpi0_in_hm)
+    ! call face2center_U_inverse_filtered(qpl0_in, qpl0_in_hm)
+  end if
+
+  ! call output_host_model_single_variable(qn0_in_hm, 'qn0_hm', 'qn0_in_hm' , 'kg/kg', 0)
+  ! call output_host_model_single_variable(qp0_in_hm, 'qp0_hm', 'qp0_in_hm' , 'kg/kg', 0)
+  ! call output_host_model_single_variable(qni0_in_hm, 'qni0_hm', 'qni0_in_hm' , 'kg/kg', 0)
+  ! call output_host_model_single_variable(qnl0_in_hm, 'qnl0_hm', 'qnl0_in_hm' , 'kg/kg', 0)
+  ! call output_host_model_single_variable(qpi0_in_hm, 'qpi0_hm', 'qpi0_in_hm' , 'kg/kg', 0)
+  ! call output_host_model_single_variable(qpl0_in_hm, 'qpl0_hm', 'qpl0_in_hm' , 'kg/kg', 0)
+
 
   call output_host_model_single_variable(prec_flx_map, 'PrecFlux', '1Prec_Rate_2Sensible_heat_flux_3Latent_heat_flux' , 'mm/day_W/m2', 0)
   u_out_map = 0.
@@ -212,24 +254,20 @@ subroutine host_model_evolve( &
     if (nouvchatting) then
       u_hm_map = u_hm_updated_map_save
     else !全都通信的情况
-      ! call face2center_U((u_hm_updated_map_save-u_hm_map_save),tmp1)  !u_hm_updated_map_save 上一次hm_step更新之后的u； u_hm_map_save 上一次hm_step更新之前的u
-      call face2center_U_inverse_filtered((u_hm_updated_map_save-u_hm_map_save),tmp1)
-      ! call output_host_model_single_variable(u_hm_updated_map_save-u_hm_map_save, 'deltaU', 'u_hm_updated-u_hm__at_face' , 'm/s', 0)
-      ! call output_host_model_single_variable(tmp1, 'dUhm_ctr', 'u_hm_updated-u_hm__at_center' , 'm/s', 0)
+      if (subdomain_center_at_hm_u_center) then
 
-      ! tmp1 = tmp1 + dt_hm * dudt_subdomain_diffuse  ! subdomain受到的总的"nudging" ！！这里是不是不太对啊
-      ! call output_host_model_single_variable(tmp1, 'dUtt_ctr', 'u_hm_updated-u_hm_at_center+diffusion__at_center' , 'm/s', 0)
+        call face2center_U((u_hm_updated_map_save-u_hm_map_save),tmp1)  !u_hm_updated_map_save 上一次hm_step更新之后的u； u_hm_map_save 上一次hm_step更新之前的u
+        ! call face2center_U_inverse_filtered((u_hm_updated_map_save-u_hm_map_save),tmp1)
 
-      ! call center2face_U((u0_in-u_sub_map_save-tmp1), tmp2)
-      ! call center2face_U_inverse((u0_in-u_sub_map_save-tmp1), tmp3)
-      call center2face_U_inverse_filtered((u0_in-u_sub_map_save-tmp1), tmp2)
-      ! call output_host_model_single_variable(tmp2, 'delta2Um', 'delta2U_mean' , 'm/s', 0)
-      ! call output_host_model_single_variable(tmp3, 'delta2Ui', 'delta2U_inverse' , 'm/s', 0)
-      ! call output_host_model_single_variable(tmp4, 'delta2Uf', 'delta2U_filtered_inverse' , 'm/s', 0)
-      ! tmp2 = 0.0 * tmp2 + 1.0 * tmp4
-      ! call output_host_model_single_variable(u0_in-u_sub_map_save, 'dUsd_ctr', 'u0_in-u_sub_map_save__at_center' , 'm/s', 0)
-      ! call output_host_model_single_variable(u0_in-u_sub_map_save-tmp1, 'cnv_ad_c', 'convective_adjustment__at_center' , 'm/s', 0)
-      ! call output_host_model_single_variable(tmp2, 'delta2U', 'modification_to_Uhm' , 'm/s', 0)  ! cnv_ad_f
+        call center2face_U((u0_in-u_sub_map_save-tmp1), tmp2)
+        ! call center2face_U_inverse_filtered((u0_in-u_sub_map_save-tmp1), tmp2)   ! 对流调整 + diffusion
+
+      else
+
+        tmp1 = u_hm_updated_map_save - u_hm_map_save
+        tmp2 = u0_in - u_sub_map_save - tmp1
+
+      end if
 
       u_hm_map = u_hm_updated_map_save + tmp2
       tmp_U = u_hm_map
@@ -263,20 +301,55 @@ subroutine host_model_evolve( &
       ! call output_host_model_single_variable(tmp, 'W_R', 'W_after_adams_R' , 'm/s', 0)
       
       ! ------------------------------------------------------------------------------------------------------------------
-      ! call face2center_U((u_hm_map - tmp_U), u_press_modify)
-      call face2center_U_inverse_filtered((u_hm_map - tmp_U), u_press_modify)
+      if (subdomain_center_at_hm_u_center) then
+
+        call face2center_U((u_hm_map - tmp_U), u_press_modify)
+        ! call face2center_U_inverse_filtered((u_hm_map - tmp_U), u_press_modify)
+
+      else
+
+        u_press_modify = u_hm_map - tmp_U
+
+      end if  ! subdomain_center_at_hm_u_center
+
       ! call output_host_model_single_variable(u_press_modify, 'U_modify', 'U_back_to_subdomain' , 'm/s', 0)
       u_sub_map_save = u0_in + u_press_modify
 
 
     end if   ! if (nouvchatting) else
 
-    t_hm_map = t_hm_map_save + t0_in - t_sub_map_save
+    if (subdomain_center_at_hm_u_center) then
+
+      t_hm_map = t_hm_map_save + t0_in - t_sub_map_save
+      q_hm_map = q_hm_map_save + q0_in - q_sub_map_save
+    
+    else
+      ! ====================================================
+      ! 新布局：CRM T/Q 位于 Host U-face，需要 face2center
+      ! ====================================================
+
+      call center2face_U(t_hm_updated_map_save - t_hm_map_save, tmp1)
+      ! call center2face_U_inverse_filtered(t_hm_updated_map_save - t_hm_map_save, tmp1)
+
+      call face2center_U(t0_in - t_sub_map_save - tmp1, tmp2)
+      ! call face2center_U_inverse_filtered(t0_in - t_sub_map_save - tmp1, tmp2)
+
+      t_hm_map = t_hm_updated_map_save + tmp2
+
+
+      call center2face_U(q_hm_updated_map_save - q_hm_map_save, tmp1)
+      ! call center2face_U_inverse_filtered(q_hm_updated_map_save - q_hm_map_save, tmp1)
+
+      call face2center_U(q0_in - q_sub_map_save - tmp1, tmp2)
+      ! call face2center_U_inverse_filtered(q0_in - q_sub_map_save - tmp1, tmp2)
+
+      q_hm_map = q_hm_updated_map_save + tmp2
+      
+
+    end if
+  
     t_sub_map_save = t0_in
-
-    q_hm_map = q_hm_map_save + q0_in - q_sub_map_save
     q_sub_map_save = q0_in
-
 
     u_hm_map_save = u_hm_map
     t_hm_map_save = t_hm_map
@@ -316,12 +389,14 @@ subroutine host_model_evolve( &
       do k = 1, nzm
           do i = 1, nsx
             
-              tabs_map_hm(i,k) = t_hm_map(i,k) - gamaz(k)+ fac_cond * (qnl0_in(i,k)+qpl0_in(i,k)) +fac_sub *(qni0_in(i,k) + qpi0_in(i,k))    ! tabs(i,j,k) = t(i,j,k)-gamaz(k)+ fac_cond * (qcl(i,j,k)+qpl(i,j,k)) +fac_sub *(qci(i,j,k) + qpi(i,j,k))
+              tabs_map_hm(i,k) = t_hm_map(i,k) - gamaz(k) &
+                        + fac_cond * (qnl0_in_hm(i,k)+qpl0_in_hm(i,k)) &
+                        + fac_sub *(qni0_in_hm(i,k) + qpi0_in_hm(i,k))    ! tabs(i,j,k) = t(i,j,k)-gamaz(k)+ fac_cond * (qcl(i,j,k)+qpl(i,j,k)) +fac_sub *(qci(i,j,k) + qpi(i,j,k))
             
           end do   
       end do
       
-      call buoyancy_hm(tabs_map_hm, q_hm_map-qn0_in, qn0_in, qp0_in, dwdt_hm)
+      call buoyancy_hm(tabs_map_hm, q_hm_map-qn0_in_hm, qn0_in_hm, qp0_in_hm, dwdt_hm)
       
     end if
 
@@ -389,20 +464,32 @@ subroutine host_model_evolve( &
     call advect_scalars_hm(t_hm_map, u1_hm_map, w1_hm_map)
     call advect_scalars_hm(q_hm_map, u1_hm_map, w1_hm_map)
  
-    ! call output_host_model_single_variable(t_hm_map, 't4', 't_after_advect' , 'K', icyc)
-    ! call output_host_model_single_variable(q_hm_map, 'q4', 'q_after_advect' , 'kg/kg', icyc)
+    call output_host_model_single_variable(t_hm_map, 't4', 't_after_advect' , 'K', icyc)
+    call output_host_model_single_variable(q_hm_map, 'q4', 'q_after_advect' , 'kg/kg', icyc)
   end do
 
   u_hm_updated_map_save = u_hm_map
   t_hm_updated_map_save = t_hm_map
   q_hm_updated_map_save = q_hm_map 
 
-  t_out_map = t_hm_map - t_hm_map_save
-  q_out_map = q_hm_map - q_hm_map_save
- 
-  ! call face2center_U((u_hm_map-u_hm_map_save), u_out_map)
-  ! call face2center_U_smooth((u_hm_map-u_hm_map_save), u_out_map)
-  call face2center_U_inverse_filtered((u_hm_map-u_hm_map_save), u_out_map)
+  if (subdomain_center_at_hm_u_center) then
+
+    t_out_map = t_hm_map - t_hm_map_save
+    q_out_map = q_hm_map - q_hm_map_save
+  
+    call face2center_U((u_hm_map-u_hm_map_save), u_out_map)
+    ! call face2center_U_inverse_filtered((u_hm_map-u_hm_map_save), u_out_map)
+
+  else
+    u_out_map = u_hm_map - u_hm_map_save
+
+    call center2face_U(t_hm_map - t_hm_map_save, t_out_map)
+    call center2face_U(q_hm_map - q_hm_map_save, q_out_map)
+    ! call center2face_U_inverse_filtered(t_hm_map - t_hm_map_save, t_out_map)
+    ! call center2face_U_inverse_filtered(q_hm_map - q_hm_map_save, q_out_map)
+
+  end if
+
   w_out_map = w_hm_map
 
   ! call output_host_model_single_variable(u_out_map, 'U_OUT_hm', 'u_out_from_host_model_evolution' , 'm/s', 0)
@@ -410,6 +497,12 @@ subroutine host_model_evolve( &
   ! ------------- 加上直接对subdomain的diffuse ------------- 
   u_out_map = u_out_map + dt_hm * dudt_subdomain_diffuse
   
+  ! call cal_nyquist(u0_in, u_nyquist)
+  ! call cal_nyquist(t0_in, t_nyquist)
+  ! call cal_nyquist(q0_in, q_nyquist)
+  ! u_out_map = u_out_map - u_nyquist
+  ! t_out_map = t_out_map - t_nyquist
+  ! q_out_map = q_out_map - q_nyquist
 
 
   call output_host_model(u0_in, t0_in, q0_in,  &
@@ -422,12 +515,12 @@ subroutine host_model_evolve( &
  
 end subroutine host_model_evolve
 
-subroutine buoyancy_hm(tabs0_in, qv0_in, qn0_in, qp0_in, dwdt_hm)
+subroutine buoyancy_hm(tabs0_in_hm, qv0_in_hm, qn0_in_hm, qp0_in_hm, dwdt_hm)
   use vars
   use params
   implicit none
 
-  real, intent(in)  :: tabs0_in(nsx, nzm), qv0_in(nsx, nzm), qn0_in(nsx, nzm), qp0_in(nsx, nzm)
+  real, intent(in)  :: tabs0_in_hm(nsx, nzm), qv0_in_hm(nsx, nzm), qn0_in_hm(nsx, nzm), qp0_in_hm(nsx, nzm)
   real, intent(inout) :: dwdt_hm(nsx, nz)
   real :: tabs0_entire_domain(nzm), qv0_entire_domain(nzm), qn0_entire_domain(nzm), qp0_entire_domain(nzm)
 
@@ -435,10 +528,10 @@ subroutine buoyancy_hm(tabs0_in, qv0_in, qn0_in, qp0_in, dwdt_hm)
   real betu, betd
 	
   do k = 1, nzm
-      tabs0_entire_domain(k) = sum( tabs0_in(:,k) ) / nsx
-      qv0_entire_domain(k) = sum( qv0_in(:,k) ) / nsx
-      qn0_entire_domain(k) = sum( qn0_in(:,k) ) / nsx
-      qp0_entire_domain(k) = sum( qp0_in(:,k) ) / nsx  
+      tabs0_entire_domain(k) = sum( tabs0_in_hm(:,k) ) / nsx
+      qv0_entire_domain(k) = sum( qv0_in_hm(:,k) ) / nsx
+      qn0_entire_domain(k) = sum( qn0_in_hm(:,k) ) / nsx
+      qp0_entire_domain(k) = sum( qp0_in_hm(:,k) ) / nsx  
   end do
 
   do k=2,nzm	
@@ -449,11 +542,11 @@ subroutine buoyancy_hm(tabs0_in, qv0_in, qn0_in, qp0_in, dwdt_hm)
     do i=1,nsx
       dwdt_hm(i,k)=dwdt_hm(i,k) +  &
           bet(k)*betu* &
-        ( tabs0_entire_domain(k)*(epsv*(qv0_in(i,k)-qv0_entire_domain(k))-(qn0_in(i,k)-qn0_entire_domain(k)+qp0_in(i,k)-qp0_entire_domain(k))) &
-          +(tabs0_in(i,k)-tabs0_entire_domain(k))*(1.+epsv*qv0_entire_domain(k)-qn0_entire_domain(k)-qp0_entire_domain(k)) ) &
+        ( tabs0_entire_domain(k)*(epsv*(qv0_in_hm(i,k)-qv0_entire_domain(k))-(qn0_in_hm(i,k)-qn0_entire_domain(k)+qp0_in_hm(i,k)-qp0_entire_domain(k))) &
+          +(tabs0_in_hm(i,k)-tabs0_entire_domain(k))*(1.+epsv*qv0_entire_domain(k)-qn0_entire_domain(k)-qp0_entire_domain(k)) ) &
         + bet(kb)*betd* &
-        ( tabs0_entire_domain(kb)*(epsv*(qv0_in(i,kb)-qv0_entire_domain(kb))-(qn0_in(i,kb)-qn0_entire_domain(kb)+qp0_in(i,kb)-qp0_entire_domain(kb))) &
-          +(tabs0_in(i,kb)-tabs0_entire_domain(kb))*(1.+epsv*qv0_entire_domain(kb)-qn0_entire_domain(kb)-qp0_entire_domain(kb)) )  
+        ( tabs0_entire_domain(kb)*(epsv*(qv0_in_hm(i,kb)-qv0_entire_domain(kb))-(qn0_in_hm(i,kb)-qn0_entire_domain(kb)+qp0_in_hm(i,kb)-qp0_entire_domain(kb))) &
+          +(tabs0_in_hm(i,kb)-tabs0_entire_domain(kb))*(1.+epsv*qv0_entire_domain(kb)-qn0_entire_domain(kb)-qp0_entire_domain(kb)) )  
 
     end do ! i
   end do ! k
@@ -1876,8 +1969,8 @@ subroutine damp_for_target_inverse_prefilter(u_map)   ! version2, 换成了fft
     pi = acos(-1.0d0)
     k_nyq = nsx / 2
 
-    k1 = 0.985d0 * dble(k_nyq)
-    k2 = 0.995d0 * dble(k_nyq)
+    k1 = 0.94d0 * dble(k_nyq)
+    k2 = 0.99d0 * dble(k_nyq)
 
     ! FFT991 requires two extra packed-spectrum entries.
     f_fft(:,:) = 0.0d0
@@ -2540,5 +2633,41 @@ subroutine nudge_u_to_external_profile(u_hm_map, dudt_hm, u_external_profile)
 
 end subroutine nudge_u_to_external_profile
 
+subroutine cal_nyquist(field, nyquist_field)
+    use grid, only: nsx, nzm
+    implicit none
+
+    real, intent(in)  :: field(nsx,nzm)
+    real, intent(out) :: nyquist_field(nsx,nzm)
+
+    real :: amp, sign
+    integer :: i, k
+
+    nyquist_field = 0.0
+
+    if (mod(nsx,2) /= 0) return
+
+    do k = 1, nzm
+
+        amp = 0.0
+        sign = 1.0
+
+        do i = 1, nsx
+            amp = amp + sign * field(i,k)
+            sign = -sign
+        end do
+
+        amp = amp / real(nsx)
+
+        sign = 1.0
+
+        do i = 1, nsx
+            nyquist_field(i,k) = sign * amp
+            sign = -sign
+        end do
+
+    end do
+
+end subroutine cal_nyquist
 
 end module module_hostmodel
