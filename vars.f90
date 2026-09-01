@@ -296,8 +296,13 @@ character(len=256) :: large_u_profile_filename = 'large_u_profile.txt'      ! re
 real tauls_large_scale 
 
 real dudt_subdomain_diffuse(nsx, nzm)  ! 用于直接diffuse subdomain-averaged 的u
+real dtdt_subdomain_diffuse(nsx, nzm)  ! 用于直接diffuse subdomain-averaged 的t
+real dqdt_subdomain_diffuse(nsx, nzm)  ! 用于直接diffuse subdomain-averaged 的q
 real :: diffuse_intensity_subdomain_large_scale = 0.
 
 logical :: subdomain_center_at_hm_u_center = .true. ! .true.  : interpolate U; T/Q are collocated with subdomain centers   ! .false. : U is collocated with subdomain centers; interpolate T/Q
+
+real(8) :: inverse_prefilter_k1_fraction = 0.94d0
+real(8) :: inverse_prefilter_k2_fraction = 0.99d0
 
 end module vars
