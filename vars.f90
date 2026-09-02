@@ -305,4 +305,11 @@ logical :: subdomain_center_at_hm_u_center = .true. ! .true.  : interpolate U; T
 real(8) :: inverse_prefilter_k1_fraction = 0.94d0
 real(8) :: inverse_prefilter_k2_fraction = 0.99d0
 
+logical :: do_hm_bubble = .false. 
+integer :: hm_bubble_step = 20
+real :: hm_bubble_z_bot = 0.0 ! 扰动区底 [m]
+real :: hm_bubble_z_top = 5000.0   ! 扰动区顶 [m]
+integer :: hm_bubble_nsubdomain_half = 1        ! 水平半宽（subdomain数）
+real :: hm_bubble_dtemp = -0.25   ! 每一步的扰动 [K]
+
 end module vars

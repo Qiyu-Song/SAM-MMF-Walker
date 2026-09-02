@@ -252,6 +252,10 @@ subroutine host_model_evolve( &
     t_hm_map_save = t_hm_map
     q_hm_map_save = q_hm_map
 
+    call output_host_model_single_variable(u_hm_map, 'U_LS', 'U_LS' , 'm/s', 0)
+    call output_host_model_single_variable(t_hm_map, 't_LS', 't_LS' , 'K', 0)
+    call output_host_model_single_variable(q_hm_map, 'q_LS', 'q_LS' , 'kg/kg', 0)
+
   
   else
     if (nouvchatting) then
@@ -411,6 +415,12 @@ subroutine host_model_evolve( &
     !   end if
     ! end if
     ! call output_host_model_single_variable(t_hm_map, 't1', 't_after_bubble' , 'K', icyc)
+
+    if (do_hm_bubble) then
+      if (hm_step.lt.hm_bubble_step) then
+        call cold_bubble_hm(t_hm_map)
+      end if
+    end if
     
     
     ! -------------------------------------------------------------------------------------------------------
@@ -2339,6 +2349,35 @@ subroutine hot_bubble(hm_step, t)
     end do
 
 end subroutine hot_bubble
+
+
+subroutine cold_bubble_hm(t_hm_map)
+    use grid
+    use vars
+    implicit none
+    real, intent(inout) :: t_hm_map(nsx, nzm)
+
+    integer :: i, k, i1, i2, k1, k2
+
+    i1 = max(1,   nsx/2 - hm_bubble_nsubdomain_half + 1)
+    i2 = min(nsx, nsx/2 + hm_bubble_nsubdomain_half)
+
+    k1 = nzm + 1
+    k2 = 0
+    do k = 1, nzm
+      if (z(k) .ge. hm_bubble_z_bot .and. z(k) .le. hm_bubble_z_top) then
+        k1 = min(k1, k)
+        k2 = max(k2, k)
+      end if
+    end do
+
+    do k = k1, k2
+      do i = i1, i2
+        t_hm_map(i,k) = t_hm_map(i,k) + hm_bubble_dtemp
+      end do
+    end do
+
+end subroutine cold_bubble_hm
 
 subroutine buoyancy_only_in_hm(t_hm_map, q_hm_map, dwdt_hm)   !  qni_hm_map, qnl_hm_map, qpi_hm_map, qpl_hm_map,
   use vars

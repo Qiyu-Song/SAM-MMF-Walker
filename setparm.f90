@@ -65,7 +65,8 @@ NAMELIST /KUANG_PARAMS/ dompiensemble, &
                 nouvchatting, but_nudge_u, hm_only, diffuse_intensity,do_3step_adams,hm_subcycle, &
                 CRM_damping0, CRM_dampingRM, apply_hm_u_external_nudging, large_u_profile_filename, tauls_large_scale, &
                 diffuse_intensity_subdomain_large_scale, subdomain_center_at_hm_u_center, &
-                inverse_prefilter_k1_fraction, inverse_prefilter_k2_fraction
+                inverse_prefilter_k1_fraction, inverse_prefilter_k2_fraction, &
+                do_hm_bubble, hm_bubble_step, hm_bubble_z_bot, hm_bubble_z_top, hm_bubble_nsubdomain_half, hm_bubble_dtemp
 
 
                 
