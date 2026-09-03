@@ -66,6 +66,7 @@ NAMELIST /KUANG_PARAMS/ dompiensemble, &
                 CRM_damping0, CRM_dampingRM, apply_hm_u_external_nudging, large_u_profile_filename, tauls_large_scale, &
                 diffuse_intensity_subdomain_large_scale, subdomain_center_at_hm_u_center, &
                 inverse_prefilter_k1_fraction, inverse_prefilter_k2_fraction, &
+                do_remove_nyquist_u, &
                 do_hm_bubble, hm_bubble_step, hm_bubble_z_bot, hm_bubble_z_top, hm_bubble_nsubdomain_half, hm_bubble_dtemp
 
 

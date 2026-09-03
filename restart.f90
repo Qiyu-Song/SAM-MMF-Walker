@@ -371,7 +371,7 @@
              u0_local_hm, t0_local_hm, q0_local_hm, tabs0_local_hm, &
              qn0_local_hm, qp0_local_hm, qni0_local_hm, qnl0_local_hm, &
              qpi0_local_hm, qpl0_local_hm, prec_flx_local_hm, &
-             ug0_hm, tg0_hm, qg0_hm, ug0_press_modify, &
+             ug0_hm, tg0_hm, qg0_hm, ug0_press_modify, ug0_nyquist, &
              u_hm_map_save, u_hm_updated_map_save, u_sub_map_save, &
              t_hm_map_save, t_hm_updated_map_save, t_sub_map_save, &
              q_hm_map_save, q_hm_updated_map_save, q_sub_map_save, &
@@ -428,7 +428,7 @@
              u0_local_hm, t0_local_hm, q0_local_hm, tabs0_local_hm, &
              qn0_local_hm, qp0_local_hm, qni0_local_hm, qnl0_local_hm, &
              qpi0_local_hm, qpl0_local_hm, prec_flx_local_hm, &
-             ug0_hm, tg0_hm, qg0_hm, ug0_press_modify, &
+             ug0_hm, tg0_hm, qg0_hm, ug0_press_modify, ug0_nyquist, &
              u_hm_map_save, u_hm_updated_map_save, u_sub_map_save, &
              t_hm_map_save, t_hm_updated_map_save, t_sub_map_save, &
              q_hm_map_save, q_hm_updated_map_save, q_sub_map_save, &

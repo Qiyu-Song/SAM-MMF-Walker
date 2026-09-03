@@ -149,6 +149,9 @@ do while(nstep.lt.nstop.and.nelapse.gt.0)
                     if (.not. nouvchatting) then
                          call modify_U_for_subdomain()
                     end if
+                    if (do_remove_nyquist_u) then
+                         call remove_nyquist_U_for_subdomain()
+                    end if
                     if (.not. could_hm_nudging) then
                          could_hm_nudging = .true.
                     end if

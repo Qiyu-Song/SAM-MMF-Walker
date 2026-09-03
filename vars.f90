@@ -312,4 +312,7 @@ real :: hm_bubble_z_top = 5000.0   ! 扰动区顶 [m]
 integer :: hm_bubble_nsubdomain_half = 1        ! 水平半宽（subdomain数）
 real :: hm_bubble_dtemp = -0.25   ! 每一步的扰动 [K]
 
+logical :: do_remove_nyquist_u = .false.
+real ug0_nyquist(nzm)   ! Nyquist (2-subdomain) component of U to be removed from each subdomain
+
 end module vars

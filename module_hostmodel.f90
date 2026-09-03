@@ -3,7 +3,8 @@ module module_hostmodel
   use vars, only: rho, rhow, hm_step
   implicit none
   private
-  public :: host_model_init, host_model_finalize, host_model_evolve, nudging_hm, nudging_hm_nouv, modify_U_for_subdomain, set_sin_x_sst
+  public :: host_model_init, host_model_finalize, host_model_evolve, nudging_hm, nudging_hm_nouv, modify_U_for_subdomain, &
+            remove_nyquist_U_for_subdomain, set_sin_x_sst
  
 
 contains
@@ -31,6 +32,7 @@ subroutine host_model_init()
     dudt_subdomain_diffuse = 0.
     dtdt_subdomain_diffuse = 0.
     dqdt_subdomain_diffuse = 0.
+    ug0_nyquist = 0.
     ! ----------------添加条带的初始场-----------------
     ! do k = 1, 3
     !   do i = 1, nsx
@@ -148,7 +150,7 @@ subroutine host_model_evolve( &
    u0_in, wsub_in, t0_in, q0_in,  &
   tabs0_in, qn0_in, qp0_in, &
   qni0_in, qnl0_in, qpi0_in, qpl0_in, prec_flx_map, &
-  u_out_map,  w_out_map, t_out_map, q_out_map, u_press_modify)
+  u_out_map,  w_out_map, t_out_map, q_out_map, u_press_modify, u_nyquist_map)
   use vars
   use params, only: fac_cond, fac_fus, fac_sub
   implicit none
@@ -175,6 +177,7 @@ subroutine host_model_evolve( &
   real, intent(out) :: t_out_map(nsx, nzm)
   real, intent(out) :: q_out_map(nsx, nzm)
   real, intent(out) :: u_press_modify(nsx, nzm)
+  real, intent(out) :: u_nyquist_map(nsx, nzm)
 
 
   ! -------- 局部 --------
@@ -239,6 +242,7 @@ subroutine host_model_evolve( &
   t_out_map = 0.
   q_out_map = 0.
   u_press_modify = 0.
+  u_nyquist_map = 0.
 
   
   w_hm_map = wsub_in
@@ -542,6 +546,21 @@ subroutine host_model_evolve( &
     t_out_map = t_out_map + dt_hm * dtdt_subdomain_diffuse
     q_out_map = q_out_map + dt_hm * dqdt_subdomain_diffuse
   endif
+  ! ------------- 计算要从各 subdomain 的 U 场中直接扣掉的 Nyquist (2-subdomain) 分量 -------------
+  ! 这里只是把该扣的量算出来并送回各 subdomain；实际扣除发生在 remove_nyquist_U_for_subdomain,
+  ! 它在 main.f90 里紧跟在 modify_U_for_subdomain 之后被调用。
+  if (do_remove_nyquist_u .and. (.not. hm_only)) then
+    if (nouvchatting) then
+      ! 此时 subdomain 端的 U 状态就是 u0_in（没有 u_press_modify 这一步）
+      call cal_nyquist(u0_in, u_nyquist_map)
+    else
+      ! 此时 u_sub_map_save = u0_in + u_press_modify，即 subdomain 端加完压力修正后的 U 状态
+      call cal_nyquist(u_sub_map_save, u_nyquist_map)
+      ! 同步扣掉记录值，和u_press_modify一样，是上一步的未完成部分
+      u_sub_map_save = u_sub_map_save - u_nyquist_map
+    end if
+    call output_host_model_single_variable(u_nyquist_map, 'U_nyq', 'U_nyquist_removed_from_subdomain' , 'm/s', 0)
+  end if
   ! call cal_nyquist(u0_in, u_nyquist)
   ! call cal_nyquist(t0_in, t_nyquist)
   ! call cal_nyquist(q0_in, q_nyquist)
@@ -2509,6 +2528,26 @@ subroutine modify_U_for_subdomain()
     ! call boundaries(1)
 
 end subroutine modify_U_for_subdomain
+
+subroutine remove_nyquist_U_for_subdomain()
+! 从本 subdomain 的 U 场中减去一个常数（每层一个数），即整个 map 上的 Nyquist 分量。
+! ug0_nyquist 由 host model 在 host_model_evolve 中算好并 scatter 回来。
+! 必须在 modify_U_for_subdomain 之后调用，因为 host 端是基于 u0_in + u_press_modify 算的。
+    use vars
+    implicit none
+    integer i,j,k
+
+    do k=1,nzm
+      do j=1,ny
+        do i=1,nx
+          u(i,j,k) = u(i,j,k) - ug0_nyquist(k)
+        end do
+      end do
+    end do
+
+    ! call boundaries(1)
+
+end subroutine remove_nyquist_U_for_subdomain
 
 ! ----------------------傅里叶变换消最高频------------------------------------------
 subroutine damp_highest_wavenumber(u_map)
