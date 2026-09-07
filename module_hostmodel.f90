@@ -4,7 +4,7 @@ module module_hostmodel
   implicit none
   private
   public :: host_model_init, host_model_finalize, host_model_evolve, nudging_hm, nudging_hm_nouv, modify_U_for_subdomain, &
-            remove_nyquist_U_for_subdomain, set_sin_x_sst
+            remove_nyquist_U_for_subdomain, remove_residual_U_for_subdomain, set_sin_x_sst
  
 
 contains
@@ -33,6 +33,7 @@ subroutine host_model_init()
     dtdt_subdomain_diffuse = 0.
     dqdt_subdomain_diffuse = 0.
     ug0_nyquist = 0.
+    ug0_resid = 0.
     ! ----------------添加条带的初始场-----------------
     ! do k = 1, 3
     !   do i = 1, nsx
@@ -150,7 +151,7 @@ subroutine host_model_evolve( &
    u0_in, wsub_in, t0_in, q0_in,  &
   tabs0_in, qn0_in, qp0_in, &
   qni0_in, qnl0_in, qpi0_in, qpl0_in, prec_flx_map, &
-  u_out_map,  w_out_map, t_out_map, q_out_map, u_press_modify, u_nyquist_map)
+  u_out_map,  w_out_map, t_out_map, q_out_map, u_press_modify, u_nyquist_map, u_resid_map)
   use vars
   use params, only: fac_cond, fac_fus, fac_sub
   implicit none
@@ -178,6 +179,7 @@ subroutine host_model_evolve( &
   real, intent(out) :: q_out_map(nsx, nzm)
   real, intent(out) :: u_press_modify(nsx, nzm)
   real, intent(out) :: u_nyquist_map(nsx, nzm)
+  real, intent(out) :: u_resid_map(nsx, nzm)
 
 
   ! -------- 局部 --------
@@ -188,6 +190,8 @@ subroutine host_model_evolve( &
   real :: tmp(nsx, nzm), tmp1(nsx, nzm), tmp2(nsx, nzm), tmp3(nsx, nzm), tmp4(nsx, nzm), tmp_U(nsx, nzm), tmp_dudt(nsx, nzm)
   real :: u_hm_map(nsx, nzm),  w_hm_map(nsx, nz), t_hm_map(nsx, nzm), q_hm_map(nsx, nzm) ! , qni_hm_map(nsx, nzm) , qnl_hm_map(nsx, nzm), qpi_hm_map(nsx, nzm), qpl_hm_map(nsx, nzm)
   integer :: i, k
+  real :: u_adj_cs(nsx, nzm)   ! CRM-generated U adjustment, subdomain space
+  logical :: do_resid
   real :: tabs_map_hm(nsx, nzm)
   logical :: do_3step_adams_tmp
   integer :: icyc
@@ -243,8 +247,12 @@ subroutine host_model_evolve( &
   q_out_map = 0.
   u_press_modify = 0.
   u_nyquist_map = 0.
+  u_resid_map   = 0.
 
   
+  do_resid = do_remove_coupling_residual .and. (.not. hm_only) .and. (.not. nouvchatting) &
+             .and. subdomain_center_at_hm_u_center
+
   w_hm_map = wsub_in
   
   if (hm_only) then
@@ -272,11 +280,22 @@ subroutine host_model_evolve( &
         ! call center2face_U((u0_in-u_sub_map_save-tmp1), tmp2)
         
         call face2center_U_inverse_filtered((u_hm_updated_map_save-u_hm_map_save),tmp1)
-        call center2face_U_inverse_filtered((u0_in-u_sub_map_save-tmp1), tmp2)   ! 对流调整 + diffusion
+        u_adj_cs = u0_in - u_sub_map_save - tmp1     ! CRM-generated adjustment (subdomain space)
+        call center2face_U_inverse_filtered(u_adj_cs, tmp2)   ! 对流调整 + diffusion
+
+        ! ---- coupling residual: the part of u_adj_cs the host could not accept ----
+        ! tmp2 is what was handed to the host; mapping it back with the return
+        ! operator gives what the host effectively accepted. The difference is
+        ! orphaned in the subdomain. Spectral weight (1-h^2): identically zero
+        ! below the prefilter shoulder, rising to 1 at the 2-subdomain scale.
+        if (do_resid) then
+          call face2center_U_inverse_filtered(tmp2, tmp3)
+          u_resid_map = u_adj_cs - tmp3
+        end if
 
         call output_host_model_single_variable(u_hm_updated_map_save-u_hm_map_save, 'Uout_LS', 'LS_Uout' , 'm/s', 0)
         call output_host_model_single_variable(tmp1, 'Uout_CS', 'CS_Uout' , 'm/s', 0)
-        call output_host_model_single_variable(u0_in-u_sub_map_save-tmp1, 'Uadj_CS', 'CS_Uadj' , 'm/s', 0)
+        call output_host_model_single_variable(u_adj_cs, 'Uadj_CS', 'CS_Uadj' , 'm/s', 0)
         call output_host_model_single_variable(tmp2, 'Uadj_LS', 'LS_Uadj' , 'm/s', 0)
 
       else
@@ -560,6 +579,13 @@ subroutine host_model_evolve( &
       u_sub_map_save = u_sub_map_save - u_nyquist_map
     end if
     call output_host_model_single_variable(u_nyquist_map, 'U_nyq', 'U_nyquist_removed_from_subdomain' , 'm/s', 0)
+  end if
+
+  if (do_resid) then
+    ! u_sub_map_save must record the state the subdomain will actually hold,
+    ! exactly as for u_press_modify and the Nyquist term above.
+    u_sub_map_save = u_sub_map_save - u_resid_map
+    call output_host_model_single_variable(u_resid_map, 'U_resid', 'U_coupling_residual_removed' , 'm/s', 0)
   end if
   ! call cal_nyquist(u0_in, u_nyquist)
   ! call cal_nyquist(t0_in, t_nyquist)
@@ -2548,6 +2574,25 @@ subroutine remove_nyquist_U_for_subdomain()
     ! call boundaries(1)
 
 end subroutine remove_nyquist_U_for_subdomain
+
+subroutine remove_residual_U_for_subdomain()
+! Subtract the coupling residual (one number per level) from this subdomain's U field.
+! ug0_resid is computed in host_model_evolve and scattered back in hm_couple_step.
+! Must be called after modify_U_for_subdomain, since the host side is based on the
+! subdomain state that already includes u_press_modify.
+    use vars
+    implicit none
+    integer i,j,k
+
+    do k=1,nzm
+      do j=1,ny
+        do i=1,nx
+          u(i,j,k) = u(i,j,k) - ug0_resid(k)
+        end do
+      end do
+    end do
+
+end subroutine remove_residual_U_for_subdomain
 
 ! ----------------------傅里叶变换消最高频------------------------------------------
 subroutine damp_highest_wavenumber(u_map)
