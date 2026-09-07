@@ -2036,7 +2036,7 @@ end subroutine face2center_U_inverse_filtered
 
 subroutine damp_for_target_inverse_prefilter(u_map)   ! version2, 换成了fft
     use grid, only: nsx, nzm
-    use vars, only: inverse_prefilter_k1_fraction, inverse_prefilter_k2_fraction
+    use vars, only: suppress_k_start
     implicit none
 
     real, intent(inout) :: u_map(nsx, nzm)
@@ -2060,8 +2060,9 @@ subroutine damp_for_target_inverse_prefilter(u_map)   ! version2, 换成了fft
     pi = acos(-1.0d0)
     k_nyq = nsx / 2
 
-    k1 = inverse_prefilter_k1_fraction * dble(k_nyq)
-    k2 = inverse_prefilter_k2_fraction * dble(k_nyq)
+    ! k1 = lowest suppressed wavenumber; k2 = Nyquist, always fully suppressed
+    k1 = dble(suppress_k_start)
+    k2 = dble(k_nyq)
 
     ! FFT991 requires two extra packed-spectrum entries.
     f_fft(:,:) = 0.0d0
@@ -2080,10 +2081,12 @@ subroutine damp_for_target_inverse_prefilter(u_map)   ! version2, 换成了fft
     do m = 0, k_nyq
         kk = dble(m)
 
-        if (kk <= k1) then
-            h_target = 1.0d0
-        else if (kk >= k2) then
+        ! Nyquist test comes first so that suppress_k_start = k_nyq
+        ! (the default) leaves an empty taper band rather than dividing by zero.
+        if (kk >= k2) then
             h_target = 0.0d0
+        else if (kk <= k1) then
+            h_target = 1.0d0
         else
             h_target = 0.5d0 * &
                 (1.0d0 + cos(pi * (kk-k1)/(k2-k1)))

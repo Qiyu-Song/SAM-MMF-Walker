@@ -302,8 +302,13 @@ real :: diffuse_intensity_subdomain_large_scale = 0.
 
 logical :: subdomain_center_at_hm_u_center = .true. ! .true.  : interpolate U; T/Q are collocated with subdomain centers   ! .false. : U is collocated with subdomain centers; interpolate T/Q
 
-real(8) :: inverse_prefilter_k1_fraction = 0.94d0
-real(8) :: inverse_prefilter_k2_fraction = 0.99d0
+! Coupling filter: which wavenumbers (in host-column index space, 1..nsx/2)
+! the interpolation is allowed to suppress. The Nyquist wavenumber nsx/2 is
+! ALWAYS suppressed -- a 2-subdomain wave lies in the null space of
+! cell-averaging and cannot be transferred to the host by any operator.
+! Default (-1) resolves to nsx/2 in setparm, i.e. suppress only the highest
+! wavenumber. Set a smaller value to suppress a wider band.
+integer :: suppress_k_start = -1
 
 logical :: do_hm_bubble = .false. 
 integer :: hm_bubble_step = 20
