@@ -65,7 +65,7 @@ NAMELIST /KUANG_PARAMS/ dompiensemble, &
                 nouvchatting, but_nudge_u, hm_only, diffuse_intensity,do_3step_adams,hm_subcycle, &
                 CRM_damping0, CRM_dampingRM, apply_hm_u_external_nudging, large_u_profile_filename, tauls_large_scale, &
                 diffuse_intensity_subdomain_large_scale, subdomain_center_at_hm_u_center, &
-                inverse_prefilter_k1_fraction, inverse_prefilter_k2_fraction, &
+                suppress_k_start, &
                 do_remove_nyquist_u, do_remove_coupling_residual, &
                 do_hm_bubble, hm_bubble_step, hm_bubble_z_bot, hm_bubble_z_top, hm_bubble_nsubdomain_half, hm_bubble_dtemp
 
@@ -266,15 +266,39 @@ end if
         end if
 
         if(dompimmf) then
-          dx_hm = dx * nx / 1.0  ! 如果要改分辨率
+          dx_hm = dx_hm_km * 1000.     ! host grid spacing, set in domain.f90
           dt_hm = dt * nstephostmodel
           dt_hm_subcycle = dt_hm / hm_subcycle
+
+          ! ---- coupling filter: validate the suppressed wavenumber range ----
+          if(suppress_k_start.lt.0) suppress_k_start = nsx/2   ! default: Nyquist only
+          if(suppress_k_start.lt.1 .or. suppress_k_start.gt.nsx/2) then
+            if(masterproc) then
+              write(*,*) '*********************************************************'
+              write(*,*) '  ERROR: suppress_k_start = ', suppress_k_start
+              write(*,*) '  must satisfy  1 <= suppress_k_start <= nsx/2 = ', nsx/2
+              write(*,*) '  (nsx/2 is the Nyquist wavenumber of the host grid)'
+              write(*,*) '*********************************************************'
+            end if
+            call task_abort()
+          end if
           if(masterproc) then
             write(*,*) '*********************************************************'
             write(*,*) '  Using the Kuang_Lab Multi-scale Modeling Framework'
             write(*,*) '  Coupling with a host model.'
             write(*,*) '  Currently only works with 2D Walker circulation.'
             write(*,*) '  The host model is run every ', nstephostmodel, ' steps.'
+            write(*,*) '  Coupling filter suppresses wavenumbers ', suppress_k_start, &
+                       ' to ', nsx/2, ' (Nyquist)'
+            write(*,*) '    i.e. host-scale wavelengths at or below ', &
+                       nsx*dx_hm/float(suppress_k_start)/1000., ' km'
+            write(*,*) '  ----- grid geometry (from domain.f90 + prm) -----'
+            write(*,*) '  dx_hm            = ', dx_hm/1000., ' km'
+            write(*,*) '  nsx (host cols)  = ', nsx
+            write(*,*) '  host domain      = ', nsx*dx_hm/1000., ' km'
+            write(*,*) '  subdomain width  = ', nx*dx/1000., ' km'
+            write(*,*) '  CRM extent       = ', nx_gl*dx/1000., ' km'
+            write(*,*) '  host Nyquist     = ', 2.*dx_hm/1000., ' km'
             write(*,*) '*********************************************************'
           end if
         end if
