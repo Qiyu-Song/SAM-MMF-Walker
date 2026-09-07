@@ -315,4 +315,11 @@ real :: hm_bubble_dtemp = -0.25   ! 每一步的扰动 [K]
 logical :: do_remove_nyquist_u = .false.
 real ug0_nyquist(nzm)   ! Nyquist (2-subdomain) component of U to be removed from each subdomain
 
+! Coupling-residual removal: the part of the CRM-generated U adjustment that the
+! interpolation pair could not hand to the host. Spectral weight (1-h^2), i.e. it is
+! identically zero below the prefilter shoulder and rises to 1 at the 2-subdomain scale.
+! Removing it each coupling stops that band accumulating in the subdomain means.
+logical :: do_remove_coupling_residual = .false.
+real ug0_resid(nzm)     ! that residual, per level, scattered back to each subdomain
+
 end module vars
