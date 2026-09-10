@@ -654,12 +654,13 @@ subroutine damping_hm(u_hm_map, w_hm_map, dudt_hm, dwdt_hm)
 
     real :: u0_entire_domain(nzm)
     real :: w0_entire_domain(nz)
+    real :: u_damp_ref(nzm)   ! reference state the domain-mean drag relaxes toward
 
     real tau_min	! minimum damping time-scale (at the top)
     real tau_max    ! maxim damping time-scale (base of damping layer)
     real damp_depth ! damping depth as a fraction of the domain height
     parameter(tau_min=1800., tau_max=3600., damp_depth=0.3)
-    real tau(nzm)   
+    real tau(nzm)
     integer i, k, n_damp
 
    
@@ -694,18 +695,37 @@ subroutine damping_hm(u_hm_map, w_hm_map, dudt_hm, dwdt_hm)
     end do 
 
 
-    ! ---------------------------------------damp to remove layer-mean "dapgRM"------------------------------------------------
-    do k = 1,nzm
-        do i = 1, nsx
-            dudt_hm(i,k) = dudt_hm(i,k) - u0_entire_domain(k) /(20.0*24.0*3600.0)
-        end do
-    end do
+    ! ------------------ weak drag on the domain mean (was "dapgRM") -------------------------------------------
+    ! Relaxes the domain mean toward the reference state, NOT toward zero: with
+    ! apply_hm_u_external_nudging the reference is the prescribed profile, so this
+    ! term and nudge_u_to_external_profile pull the same way instead of fighting.
+    ! With the nudging off the reference is zero and this is identical to the
+    ! original hard-coded form. See vars.f90 for why it exists at all.
+    if (do_damp_hm_mean) then
 
-    do k = 1,nz
-        do i = 1, nsx
-            dwdt_hm(i,k) = dwdt_hm(i,k) - w0_entire_domain(k)  /(20.0*24.0*3600.0)
+        if (apply_hm_u_external_nudging) then
+            u_damp_ref(1:nzm) = u_external_profile(1:nzm)
+        else
+            u_damp_ref(1:nzm) = 0.0
+        end if
+
+        do k = 1,nzm
+            do i = 1, nsx
+                dudt_hm(i,k) = dudt_hm(i,k) &
+                     - (u0_entire_domain(k) - u_damp_ref(k)) / tau_damp_mean
+            end do
         end do
-    end do
+
+        ! Anelastic continuity already forces the domain mean of w to zero
+        ! (measured max|<w>| = 2.4e-10 m/s against max|w| = 7.2e-2 m/s), so this
+        ! loop is a no-op safety net against numerical drift. Kept deliberately.
+        do k = 1,nz
+            do i = 1, nsx
+                dwdt_hm(i,k) = dwdt_hm(i,k) - w0_entire_domain(k) / tau_damp_mean
+            end do
+        end do
+
+    end if
   ! ----------------------------------------------------------------------------------------------------------
 end subroutine damping_hm
 
