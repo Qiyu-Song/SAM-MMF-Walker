@@ -351,4 +351,16 @@ real ug0_nyquist(nzm)   ! Nyquist (2-subdomain) component of U to be removed fro
 logical :: do_remove_coupling_residual = .false.
 real ug0_resid(nzm)     ! that residual, per level, scattered back to each subdomain
 
+! The three routines below add a per-level constant to u(1:nx,1:ny,1:nzm) only, leaving the
+! halo stale until adams.f90:35 calls boundaries(1) -- which happens AFTER advect_mom().  On
+! every coupling step advect_mom therefore sees a jump of that constant at the subdomain's
+! own periodic seam.  Set .true. to refresh the halo immediately.  Default .false. keeps
+! bit-reproducibility with every run completed before 2026-09-09.
+!
+! NOTE: it must be periodic(1), NOT boundaries(1).  main.f90:144 sets dompi=.true. just
+! before the coupling block, so boundaries(1) there would dispatch to task_boundaries and
+! exchange u with the NEIGHBOURING subdomains -- destroying the independent doubly-periodic
+! CRM design.  The two pre-existing `! call boundaries(1)` comments were that trap.
+logical :: do_fix_u_halo = .false.
+
 end module vars
