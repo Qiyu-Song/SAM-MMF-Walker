@@ -310,7 +310,31 @@ logical :: subdomain_center_at_hm_u_center = .true. ! .true.  : interpolate U; T
 ! wavenumber. Set a smaller value to suppress a wider band.
 integer :: suppress_k_start = -1
 
-logical :: do_hm_bubble = .false. 
+!--------------------------------------------------------------------------
+! Weak drag on the DOMAIN-MEAN wind, shared by the host (damping_hm) and the
+! pure-SAM CRM options (CRM_damping0 / CRM_dampingRM in damping.f90). It was
+! a 20-day magic number repeated at four call sites; it is one knob now.
+!
+! Purpose: in a periodic domain nothing else bounds the domain-mean wind --
+! surface stress and convective momentum transport would let it run away.
+! It therefore relaxes the domain mean toward the REFERENCE state, which is
+! u_external_profile when apply_hm_u_external_nudging is on and zero
+! otherwise. Relaxing toward zero while the nudging pulls toward a prescribed
+! profile made the two terms fight, leaving the mean short of its target by
+! 1/(1+tauls_large_scale/tau_damp_mean) = 0.208% at the default settings
+! (measured: 0.0122 of the 0.198 m/s rms deficit, i.e. 6% of it).
+!
+! do_damp_hm_mean gates the HOST term only. The CRM terms keep their own
+! CRM_damping0 / CRM_dampingRM flags: in MMF mode the domain mean lives in
+! the host, so the CRM flags are meant for pure-SAM runs and are off here.
+! That asymmetry is deliberate, not an oversight.
+!--------------------------------------------------------------------------
+real    :: tau_damp_mean = 1728000.     ! drag timescale on the domain mean [SECONDS]
+                                        ! default 1728000 s = 20 days. Seconds to match
+                                        ! tauls, tautqls, tauls_large_scale.
+logical :: do_damp_hm_mean    = .true.  ! apply it in the host model
+
+logical :: do_hm_bubble = .false.
 integer :: hm_bubble_step = 20
 real :: hm_bubble_z_bot = 0.0 ! 扰动区底 [m]
 real :: hm_bubble_z_top = 5000.0   ! 扰动区顶 [m]

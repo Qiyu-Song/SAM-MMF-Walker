@@ -66,6 +66,7 @@ NAMELIST /KUANG_PARAMS/ dompiensemble, &
                 CRM_damping0, CRM_dampingRM, apply_hm_u_external_nudging, large_u_profile_filename, tauls_large_scale, &
                 diffuse_intensity_subdomain_large_scale, subdomain_center_at_hm_u_center, &
                 suppress_k_start, &
+                tau_damp_mean, do_damp_hm_mean, &
                 do_remove_nyquist_u, do_remove_coupling_residual, &
                 do_hm_bubble, hm_bubble_step, hm_bubble_z_bot, hm_bubble_z_top, hm_bubble_nsubdomain_half, hm_bubble_dtemp
 
@@ -282,6 +283,16 @@ end if
             end if
             call task_abort()
           end if
+          if(tau_damp_mean.le.0.) then
+            if(masterproc) then
+              write(*,*) '*********************************************************'
+              write(*,*) '  ERROR: tau_damp_mean = ', tau_damp_mean, ' s'
+              write(*,*) '  must be > 0 (seconds). Use do_damp_hm_mean = .false.'
+              write(*,*) '  to switch the domain-mean drag off instead.'
+              write(*,*) '*********************************************************'
+            end if
+            call task_abort()
+          end if
           if(masterproc) then
             write(*,*) '*********************************************************'
             write(*,*) '  Using the Kuang_Lab Multi-scale Modeling Framework'
@@ -299,6 +310,19 @@ end if
             write(*,*) '  subdomain width  = ', nx*dx/1000., ' km'
             write(*,*) '  CRM extent       = ', nx_gl*dx/1000., ' km'
             write(*,*) '  host Nyquist     = ', 2.*dx_hm/1000., ' km'
+            write(*,*) '  ----- domain-mean drag (damping_hm) -----'
+            if(do_damp_hm_mean) then
+              write(*,*) '  do_damp_hm_mean  = T, tau = ', tau_damp_mean, ' s =', tau_damp_mean/86400., ' days'
+              if(apply_hm_u_external_nudging) then
+                write(*,*) '  relaxes <u> toward the prescribed external profile'
+                write(*,*) '  (same target as the nudging, so they do not fight)'
+              else
+                write(*,*) '  relaxes <u> toward zero (no external profile given)'
+              end if
+            else
+              write(*,*) '  do_damp_hm_mean  = F  <- domain-mean wind is unbounded'
+              write(*,*) '  unless apply_hm_u_external_nudging holds it'
+            end if
             write(*,*) '*********************************************************'
           end if
         end if
