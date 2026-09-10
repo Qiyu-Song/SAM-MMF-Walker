@@ -68,6 +68,7 @@ NAMELIST /KUANG_PARAMS/ dompiensemble, &
                 suppress_k_start, &
                 tau_damp_mean, do_damp_hm_mean, &
                 do_remove_nyquist_u, do_remove_coupling_residual, &
+                do_fix_u_halo, &
                 do_hm_bubble, hm_bubble_step, hm_bubble_z_bot, hm_bubble_z_top, hm_bubble_nsubdomain_half, hm_bubble_dtemp
 
 
@@ -303,6 +304,8 @@ end if
                        ' to ', nsx/2, ' (Nyquist)'
             write(*,*) '    i.e. host-scale wavelengths at or below ', &
                        nsx*dx_hm/float(suppress_k_start)/1000., ' km'
+            write(*,*) '  do_fix_u_halo    = ', do_fix_u_halo, &
+                       ' (refresh the subdomain u halo right after the coupling increment)'
             write(*,*) '  ----- grid geometry (from domain.f90 + prm) -----'
             write(*,*) '  dx_hm            = ', dx_hm/1000., ' km'
             write(*,*) '  nsx (host cols)  = ', nsx

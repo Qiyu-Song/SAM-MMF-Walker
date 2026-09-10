@@ -2574,7 +2574,9 @@ subroutine modify_U_for_subdomain()
       ! u0(k) = u0(k) + ug0_press_modify(k)
     end do
 
-    ! call boundaries(1)
+    ! Refresh the halo before advect_mom() sees it (see do_fix_u_halo in vars.f90).
+    ! periodic(1), not boundaries(1): dompi is .true. here.
+    if (do_fix_u_halo) call periodic(1)
 
 end subroutine modify_U_for_subdomain
 
@@ -2594,7 +2596,9 @@ subroutine remove_nyquist_U_for_subdomain()
       end do
     end do
 
-    ! call boundaries(1)
+    ! Refresh the halo before advect_mom() sees it (see do_fix_u_halo in vars.f90).
+    ! periodic(1), not boundaries(1): dompi is .true. here.
+    if (do_fix_u_halo) call periodic(1)
 
 end subroutine remove_nyquist_U_for_subdomain
 
@@ -2614,6 +2618,10 @@ subroutine remove_residual_U_for_subdomain()
         end do
       end do
     end do
+
+    ! Refresh the halo before advect_mom() sees it (see do_fix_u_halo in vars.f90).
+    ! periodic(1), not boundaries(1): dompi is .true. here.
+    if (do_fix_u_halo) call periodic(1)
 
 end subroutine remove_residual_U_for_subdomain
 
