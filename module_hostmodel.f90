@@ -2502,7 +2502,64 @@ subroutine diffuse_subdomain_large_scale(u_map,dudt_hm)
 end subroutine diffuse_subdomain_large_scale
 
 
+! ===========================================================================
+! Horizontal smoother for the host model.  diffuse_u / diffuse_w are
+! dispatchers over hm_smoother; see the parameter block in vars.f90 for the
+! definitions, coefficient guidance and stability limits.
+!
+! The k range is deliberately kept at the legacy 1..nzm-2 for u and 1..nz for
+! w in every option, so that switching hm_smoother changes the operator and
+! nothing else.  The top of the domain is covered by the sponge in damping_hm
+! (top 30% of the column, tau 1800-3600 s) regardless.
+! ===========================================================================
+
 subroutine diffuse_u(u_map,dudt_hm)
+    use vars
+    implicit none
+    real, intent(in)   :: u_map(nsx,nzm)
+    real, intent(inout)   :: dudt_hm(nsx,nzm)
+
+    select case (hm_smoother)
+    case (0)
+      return
+    case (1)
+      call diffuse_u_lap(u_map,dudt_hm)
+    case (2)
+      call diffuse_u_hyper(u_map,dudt_hm)
+    case (3)
+      call smag_visc_hm(u_map)
+      call diffuse_u_smag(u_map,dudt_hm)
+    case default
+      if(masterproc) write(*,*) 'diffuse_u: bad hm_smoother = ', hm_smoother
+      call task_abort()
+    end select
+end subroutine diffuse_u
+
+subroutine diffuse_w(w_map,dwdt_hm)
+    use vars
+    implicit none
+    real, intent(in)   :: w_map(nsx,nz)
+    real, intent(inout)   :: dwdt_hm(nsx,nz)
+
+    select case (hm_smoother)
+    case (0)
+      return
+    case (1)
+      call diffuse_w_lap(w_map,dwdt_hm)
+    case (2)
+      call diffuse_w_hyper(w_map,dwdt_hm)
+    case (3)
+      ! smag_nu_hm was filled by diffuse_u, which is always called first.
+      call diffuse_w_smag(w_map,dwdt_hm)
+    case default
+      if(masterproc) write(*,*) 'diffuse_w: bad hm_smoother = ', hm_smoother
+      call task_abort()
+    end select
+end subroutine diffuse_w
+
+!--------------------------------------------------- hm_smoother = 1, grad^2
+
+subroutine diffuse_u_lap(u_map,dudt_hm)
     use vars
     implicit none
     real, intent(in)   :: u_map(nsx,nzm)
@@ -2519,9 +2576,9 @@ subroutine diffuse_u(u_map,dudt_hm)
         dudt_hm(i,k) = dudt_hm(i,k) + diffuse_intensity*(u_map(ic,k) -2*u_map(i,k) + u_map(ib,k))/dt_hm_subcycle
       end do
     end do
-end subroutine diffuse_u
+end subroutine diffuse_u_lap
 
-subroutine diffuse_w(w_map,dwdt_hm)
+subroutine diffuse_w_lap(w_map,dwdt_hm)
     use vars
     implicit none
     real, intent(in)   :: w_map(nsx,nz)
@@ -2537,7 +2594,157 @@ subroutine diffuse_w(w_map,dwdt_hm)
         dwdt_hm(i,k) = dwdt_hm(i,k) + diffuse_intensity*(w_map(ic,k) -2*w_map(i,k) + w_map(ib,k))/dt_hm_subcycle
       end do
     end do
-end subroutine diffuse_w
+end subroutine diffuse_w_lap
+
+!--------------------------------------------------- hm_smoother = 2, grad^4
+! Tendency is -nu4 * d4u/dx4 with nu4 = hyper_intensity*dx_hm^4/dt_hm_subcycle,
+! i.e. in grid-index form  -hyper_intensity/dt * (u(i+2)-4u(i+1)+6u(i)
+! -4u(i-1)+u(i-2)).  The minus sign makes it dissipative: the stencil applied
+! to exp(i*theta*n) gives +16*sin^4(theta/2) >= 0.
+
+subroutine diffuse_u_hyper(u_map,dudt_hm)
+    use vars
+    implicit none
+    real, intent(in)   :: u_map(nsx,nzm)
+    real, intent(inout)   :: dudt_hm(nsx,nzm)
+
+    integer i,k,ip1,ip2,im1,im2
+    real coef
+
+    coef = hyper_intensity/dt_hm_subcycle
+
+    do k = 1,nzm-2
+      do i=1,nsx
+        ip1 = modulo(i    ,nsx) + 1
+        ip2 = modulo(i+1  ,nsx) + 1
+        im1 = modulo(i-2+nsx,nsx) + 1
+        im2 = modulo(i-3+2*nsx,nsx) + 1
+        dudt_hm(i,k) = dudt_hm(i,k) - coef*( u_map(ip2,k) - 4.*u_map(ip1,k) &
+                       + 6.*u_map(i,k) - 4.*u_map(im1,k) + u_map(im2,k) )
+      end do
+    end do
+end subroutine diffuse_u_hyper
+
+subroutine diffuse_w_hyper(w_map,dwdt_hm)
+    use vars
+    implicit none
+    real, intent(in)   :: w_map(nsx,nz)
+    real, intent(inout)   :: dwdt_hm(nsx,nz)
+
+    integer i,k,ip1,ip2,im1,im2
+    real coef
+
+    coef = hyper_intensity/dt_hm_subcycle
+
+    do k = 1,nz
+      do i=1,nsx
+        ip1 = modulo(i    ,nsx) + 1
+        ip2 = modulo(i+1  ,nsx) + 1
+        im1 = modulo(i-2+nsx,nsx) + 1
+        im2 = modulo(i-3+2*nsx,nsx) + 1
+        dwdt_hm(i,k) = dwdt_hm(i,k) - coef*( w_map(ip2,k) - 4.*w_map(ip1,k) &
+                       + 6.*w_map(i,k) - 4.*w_map(im1,k) + w_map(im2,k) )
+      end do
+    end do
+end subroutine diffuse_w_hyper
+
+!--------------------------------------------------- hm_smoother = 3, Smagorinsky
+! u(i) lives at x = (i-1)*dx_hm (left face of cell i), so
+!     sx(i) = (u(i+1)-u(i))/dx_hm
+! is the strain at the CENTRE of cell i, co-located with w and the scalars.
+! That difference is between adjacent u points, hence fully sensitive to a
+! 2*dx_hm wave (a centred difference over 2*dx_hm would be nearly blind to it:
+! measured 1.03x the large-scale deformation, versus 3.27x for this form).
+!
+! nu is then clamped by two independent caps, whichever is smaller:
+!   - smag_max_diff_vel*dx_hm       WRF's diffusive-velocity cap (10 m/s * dx)
+!   - smag_nu_max_frac*dx_hm^2/dt   explicit-diffusion stability (AB3 needs
+!                                   4*nu*dt/dx^2 < 0.545, so frac < 0.136)
+
+subroutine smag_visc_hm(u_map)
+    use vars
+    implicit none
+    real, intent(in)   :: u_map(nsx,nzm)
+
+    integer i,ic,k
+    real lsq, nu_cap, sx
+
+    lsq    = (smag_cs*dx_hm)**2
+    nu_cap = min( smag_max_diff_vel*dx_hm, &
+                  smag_nu_max_frac*dx_hm*dx_hm/dt_hm_subcycle )
+
+    do k = 1,nzm
+      do i = 1,nsx
+        ic = i + 1
+        if (ic > nsx) ic = ic - nsx
+        sx = (u_map(ic,k) - u_map(i,k))/dx_hm
+        smag_nu_hm(i,k) = min( lsq*abs(sx), nu_cap )
+      end do
+    end do
+end subroutine smag_visc_hm
+
+subroutine diffuse_u_smag(u_map,dudt_hm)
+    use vars
+    implicit none
+    real, intent(in)   :: u_map(nsx,nzm)
+    real, intent(inout)   :: dudt_hm(nsx,nzm)
+
+    integer i,ic,ib,k
+    real rdx2
+
+    rdx2 = 1.0/(dx_hm*dx_hm)
+
+    ! flux at centre i is nu(i)*(u(i+1)-u(i)); u(i) is flanked by centres i-1 and i
+    do k = 1,nzm-2
+      do i = 1,nsx
+        ic = i + 1
+        if (ic > nsx) ic = ic - nsx
+        ib = i - 1
+        if (ib < 1) ib = ib + nsx
+        dudt_hm(i,k) = dudt_hm(i,k) + rdx2*( &
+              smag_nu_hm(i ,k)*(u_map(ic,k) - u_map(i ,k)) &
+            - smag_nu_hm(ib,k)*(u_map(i ,k) - u_map(ib,k)) )
+      end do
+    end do
+end subroutine diffuse_u_smag
+
+subroutine diffuse_w_smag(w_map,dwdt_hm)
+    use vars
+    implicit none
+    real, intent(in)   :: w_map(nsx,nz)
+    real, intent(inout)   :: dwdt_hm(nsx,nz)
+
+    integer i,ic,ib,k,kc
+    real rdx2, nu_f_i, nu_f_ib
+
+    rdx2 = 1.0/(dx_hm*dx_hm)
+
+    ! w(i) sits at the centre of cell i, so the strain of w lives on the cell
+    ! faces (the u locations) and nu there is the average of the two centres.
+    ! Vertically, w(k) is a level face: average the two scalar levels that
+    ! straddle it, with one-sided values at the ends.
+    do k = 1,nz
+      kc = min(max(k,1),nzm)
+      do i = 1,nsx
+        ic = i + 1
+        if (ic > nsx) ic = ic - nsx
+        ib = i - 1
+        if (ib < 1) ib = ib + nsx
+        if (k > 1 .and. k <= nzm) then
+          nu_f_i  = 0.25*( smag_nu_hm(i ,k) + smag_nu_hm(ic,k) &
+                         + smag_nu_hm(i ,k-1) + smag_nu_hm(ic,k-1) )
+          nu_f_ib = 0.25*( smag_nu_hm(ib,k) + smag_nu_hm(i ,k) &
+                         + smag_nu_hm(ib,k-1) + smag_nu_hm(i ,k-1) )
+        else
+          nu_f_i  = 0.5*( smag_nu_hm(i ,kc) + smag_nu_hm(ic,kc) )
+          nu_f_ib = 0.5*( smag_nu_hm(ib,kc) + smag_nu_hm(i ,kc) )
+        end if
+        dwdt_hm(i,k) = dwdt_hm(i,k) + rdx2*( &
+              nu_f_i *(w_map(ic,k) - w_map(i ,k)) &
+            - nu_f_ib*(w_map(i ,k) - w_map(ib,k)) )
+      end do
+    end do
+end subroutine diffuse_w_smag
 
 subroutine diffuse_TQ(t_map)
     use vars

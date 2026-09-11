@@ -63,6 +63,7 @@ NAMELIST /KUANG_PARAMS/ dompiensemble, &
                 donoisywave, noiselevel, &
                 dompimmf, nstephostmodel, hm_spinup_step, &
                 nouvchatting, but_nudge_u, hm_only, diffuse_intensity,do_3step_adams,hm_subcycle, &
+                hm_smoother, hyper_intensity, smag_cs, smag_max_diff_vel, smag_nu_max_frac, &
                 CRM_damping0, CRM_dampingRM, apply_hm_u_external_nudging, large_u_profile_filename, tauls_large_scale, &
                 diffuse_intensity_subdomain_large_scale, subdomain_center_at_hm_u_center, &
                 suppress_k_start, &
@@ -284,6 +285,26 @@ end if
             end if
             call task_abort()
           end if
+          if(hm_smoother.lt.0 .or. hm_smoother.gt.3) then
+            if(masterproc) then
+              write(*,*) '*********************************************************'
+              write(*,*) '  ERROR: hm_smoother = ', hm_smoother
+              write(*,*) '  must be 0 (none), 1 (grad^2), 2 (grad^4) or 3 (Smagorinsky).'
+              write(*,*) '  See the parameter block in vars.f90.'
+              write(*,*) '*********************************************************'
+            end if
+            call task_abort()
+          end if
+          if(smag_nu_max_frac.le.0.) then
+            if(masterproc) then
+              write(*,*) '*********************************************************'
+              write(*,*) '  ERROR: smag_nu_max_frac = ', smag_nu_max_frac
+              write(*,*) '  must be > 0; it is the stability clamp on the Smagorinsky'
+              write(*,*) '  viscosity, nu <= frac*dx_hm^2/dt_hm_subcycle (frac < 0.136).'
+              write(*,*) '*********************************************************'
+            end if
+            call task_abort()
+          end if
           if(tau_damp_mean.le.0.) then
             if(masterproc) then
               write(*,*) '*********************************************************'
@@ -326,6 +347,51 @@ end if
               write(*,*) '  do_damp_hm_mean  = F  <- domain-mean wind is unbounded'
               write(*,*) '  unless apply_hm_u_external_nudging holds it'
             end if
+            write(*,*) '  ----- horizontal smoother (see vars.f90) -----'
+            select case (hm_smoother)
+            case (0)
+              write(*,*) '  hm_smoother = 0 : none'
+            case (1)
+              write(*,*) '  hm_smoother = 1 : grad^2, diffuse_intensity = ', diffuse_intensity
+              write(*,*) '    nu            = ', diffuse_intensity*dx_hm*dx_hm/dt_hm_subcycle, ' m2/s'
+              write(*,*) '    e-fold at 2dx = ', dt_hm_subcycle/max(4.*diffuse_intensity,1.e-30)/3600., ' h'
+              write(*,*) '    e-fold at 1000 km = ', &
+                   1./max(diffuse_intensity*dx_hm*dx_hm/dt_hm_subcycle,1.e-30) &
+                   /(2.*3.14159265/1.e6)**2/3600., ' h'
+            case (2)
+              write(*,*) '  hm_smoother = 2 : grad^4, hyper_intensity  = ', hyper_intensity
+              write(*,*) '    nu4           = ', hyper_intensity*dx_hm**4/dt_hm_subcycle, ' m4/s'
+              write(*,*) '    e-fold at 2dx = ', dt_hm_subcycle/max(16.*hyper_intensity,1.e-30)/3600., ' h'
+              write(*,*) '    e-fold at 1000 km = ', &
+                   1./max(hyper_intensity*dx_hm**4/dt_hm_subcycle,1.e-30) &
+                   /(2.*3.14159265/1.e6)**4/3600., ' h'
+            case (3)
+              write(*,*) '  hm_smoother = 3 : Smagorinsky, smag_cs = ', smag_cs
+              write(*,*) '    equivalent C (=pi*Cs, MITgcm/Griffies-Hallberg) = ', 3.14159265*smag_cs
+              write(*,*) '    nu = (smag_cs*dx_hm)^2*|du/dx|, prefactor = ', (smag_cs*dx_hm)**2, ' m2'
+              write(*,*) '    cap: min(', smag_max_diff_vel*dx_hm, ',', &
+                   smag_nu_max_frac*dx_hm*dx_hm/dt_hm_subcycle, ') m2/s'
+            end select
+            ! AB3 real-axis stability limit is about 0.545
+            if(hm_smoother.eq.1 .and. 4.*diffuse_intensity.gt.0.545) then
+              write(*,*) '  *** WARNING: 4*diffuse_intensity = ', 4.*diffuse_intensity, &
+                         ' exceeds the AB3 real-axis limit 0.545'
+            end if
+            if(hm_smoother.eq.2 .and. 16.*hyper_intensity.gt.0.545) then
+              write(*,*) '  *** WARNING: 16*hyper_intensity = ', 16.*hyper_intensity, &
+                         ' exceeds the AB3 real-axis limit 0.545'
+            end if
+            if(hm_smoother.eq.3 .and. 4.*smag_nu_max_frac.gt.0.545) then
+              write(*,*) '  *** WARNING: 4*smag_nu_max_frac = ', 4.*smag_nu_max_frac, &
+                         ' exceeds the AB3 real-axis limit 0.545'
+            end if
+            if(hm_smoother.eq.2 .and. hyper_intensity.le.0.) &
+              write(*,*) '  *** NOTE: hm_smoother=2 but hyper_intensity <= 0, so no smoothing'
+            if(hm_smoother.eq.3 .and. smag_cs.le.0.) &
+              write(*,*) '  *** NOTE: hm_smoother=3 but smag_cs <= 0, so no smoothing'
+            if(hm_smoother.ne.1 .and. diffuse_intensity.ne.0.) &
+              write(*,*) '  *** NOTE: diffuse_intensity = ', diffuse_intensity, &
+                         ' is IGNORED because hm_smoother /= 1'
             write(*,*) '*********************************************************'
           end if
         end if

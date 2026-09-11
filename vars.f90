@@ -272,7 +272,58 @@ logical :: do_3step_adams = .false.
 real dudt_hm_hist(nsx,nzm,3)
 real dwdt_hm_hist(nsx,nz,3)
 
-real :: diffuse_intensity = 0.
+! ---------------------------------------------------------------------------
+! Host-model horizontal smoother. See diag/CONCLUSIONS_diffusion.md and
+! diag/SMAGORINSKY_LITERATURE.md for why this exists and how the coefficients
+! were chosen.
+!
+!   hm_smoother = 0  no smoothing at all
+!                 1  grad^2, grid-INDEX Laplacian (legacy; the only option that
+!                    ever ran before 2026-09-11).  Implied physical diffusivity
+!                        nu  = diffuse_intensity * dx_hm^2 / dt_hm_subcycle
+!                    so it scales as dx_hm^2 -- a 15x confound across a
+!                    128/64/32 km dx_hm sweep.  Damping rate of a wave with
+!                    k*dx = theta is (4*diffuse_intensity/dt_hm_subcycle)
+!                    *sin^2(theta/2), i.e. at 2*dx_hm exactly
+!                    4*diffuse_intensity/dt_hm_subcycle, independent of dx_hm.
+!                 2  grad^4 hyperdiffusion, also in grid-index form
+!                        nu4 = hyper_intensity * dx_hm^4 / dt_hm_subcycle
+!                    Damping rate is (16*hyper_intensity/dt_hm_subcycle)
+!                    *sin^4(theta/2); at 2*dx_hm it is 16*hyper_intensity
+!                    /dt_hm_subcycle.  So hyper_intensity = diffuse_intensity/4
+!                    matches the legacy grad^2 damping exactly at 2*dx_hm while
+!                    being far weaker at every resolved scale.
+!                 3  Smagorinsky, flow-dependent:
+!                        nu(i,k) = (smag_cs*dx_hm)^2 * |du/dx|
+!                    with |du/dx| evaluated at cell centres from adjacent u
+!                    faces, which is fully 2*dx_hm-sensitive (a centred
+!                    difference would be nearly blind to it).  No buoyancy or
+!                    Richardson-number limiter: SAM's own
+!                    max(0, def2 - Pr*buoy_sgs) makes tk identically zero in a
+!                    stratified atmosphere at host resolutions, and WRF's
+!                    horizontal-only branch (smag2d_km) applies no such factor
+!                    either.
+!
+! Coefficient guidance (all in the "Cs" convention nu = (Cs*dx)^2*|D|; note the
+! ocean-model literature and MITgcm use nu = (C*dx/pi)^2*|D|, so their
+! C = 2.2-4 is Cs = 0.70-1.27):
+!   SAM SGS   Cs = 0.15      WRF km_opt=4  c_s = 0.25
+!   Griffies & Hallberg (2000) grid-Reynolds floor Cs = 1/sqrt(2) = 0.707,
+!   their practice Cs = 0.95-1.27.  For this host Cs = 0.7-1.0 gives a 1-2 h
+!   e-folding on the grid-scale stripes and 64-209 h at 1000 km.
+!
+! Stability: all three are explicit and pass through AB3, whose real-axis limit
+! is ~0.545.  That means diffuse_intensity < 0.136, hyper_intensity < 0.034,
+! and nu < 0.136*dx_hm^2/dt_hm_subcycle.  setparm warns if the first two are
+! violated; the Smagorinsky nu is clamped at run time (see smag_nu_max_frac).
+! ---------------------------------------------------------------------------
+integer :: hm_smoother = 1          ! 0 none / 1 grad^2 (legacy) / 2 grad^4 / 3 Smagorinsky
+real :: diffuse_intensity = 0.      ! hm_smoother=1 coefficient
+real :: hyper_intensity   = 0.      ! hm_smoother=2 coefficient
+real :: smag_cs           = 0.      ! hm_smoother=3 coefficient, "Cs" convention
+real :: smag_max_diff_vel = 10.     ! WRF-style cap: nu <= smag_max_diff_vel*dx_hm  [m/s]
+real :: smag_nu_max_frac  = 0.1     ! hard stability clamp: nu <= frac*dx_hm^2/dt_hm_subcycle
+real smag_nu_hm(nsx,nzm)            ! diagnosed eddy viscosity, cell centres [m2/s]
 
 integer :: hm_subcycle = 1
 
