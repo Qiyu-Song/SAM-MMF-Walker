@@ -4,6 +4,7 @@ use vars
 use params
 use microphysics, only: micro_field, index_water_vapor, total_water
 use simple_ocean, only: sst_evolve
+use module_hostmodel, only: set_ug0_from_external_profile
 
 implicit none
 
@@ -336,6 +337,11 @@ endif
 !-------------------------------------------------------------------------------
 
 if(.not.dosfcforcing.and.dodynamicocean) call sst_evolve()
+!-------------------------------------------------------------------------------
+! 风切变实验：用 large_u_profile_filename 里的大尺度风廓线覆盖 ug0。
+! 放在 forcing 最后，这样上面 snd 段（每步无条件执行）和 dolargescale 段
+! 对 ug0 的赋值都会被覆盖掉。只动 ug0，不动 u0（u0 是 diagnose 的诊断量）。
+if(apply_hm_u_external_nudging) call set_ug0_from_external_profile()
 
 !-------------------------------------------------------------------------------
 call t_stopf ('forcing')
