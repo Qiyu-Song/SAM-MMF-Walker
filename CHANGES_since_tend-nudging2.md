@@ -48,39 +48,60 @@ done
 
 ---
 
-## Merging into `tend-nudging2`
+## `domain.f90` now carries `dx_hm_km` — set it, and check it every time
 
-Your branch has diverged by one commit (`15b4990`, 2026-09-11). A merge conflicts in
-**exactly two files**, both trivially:
-
-**`setparm.f90`** — one line, the `dx_hm` definition:
-
-```
-<<<<<<< fix-coupling-residual
-          dx_hm = dx_hm_km * 1000.     ! host grid spacing, set in domain.f90
-=======
-          dx_hm = dx * nx / 4.0  ! 如果要改分辨率
->>>>>>> tend-nudging2
-```
-
-Take ours, then set `dx_hm_km` explicitly in `domain.f90`. Your formula is
-`subdomain_width/4`; on your current `domain.f90` (`nx_gl = 4096`,
-`nsubdomains_x = 128`, so `nx = 32` and the subdomain is 128 km) it evaluates to
-**`dx_hm_km = 32.`** — set that and the merge is behaviour-preserving. The point of the
-change is that `dx_hm` is now stated next to `nx_gl` and `nsubdomains_x`, the two numbers
-it has to be consistent with, instead of being implied by a formula in `setparm`.
-
-**`module_hostmodel.f90`** — the `public ::` list, where we both added names. Keep all of
-them:
+[`a85416b`](https://github.com/Qiyu-Song/SAM-MMF-Walker/commit/a85416b7075bed16d5cb29a9827e0a2c1e37119f)
+moved the host grid spacing out of the namelist into `domain.f90`, so **three numbers
+that must be consistent with each other now live together**:
 
 ```fortran
-  public :: host_model_init, host_model_finalize, host_model_evolve, nudging_hm, &
-            nudging_hm_nouv, modify_U_for_subdomain, remove_nyquist_U_for_subdomain, &
-            remove_residual_U_for_subdomain, set_sin_x_sst, &
-            set_initial_U_from_external_profile, set_ug0_from_external_profile
+integer, parameter :: nx_gl          = 2560   ! CRM points in x, whole domain
+integer, parameter :: nsubdomains_x  = 160    ! = nsx, the number of host columns
+real,    parameter :: dx_hm_km       = 64.    ! host grid spacing [km]   <-- NEW
 ```
 
-`domain.f90` auto-merges. Nothing else conflicts.
+with, at `dx = 4 km`,
+
+    subdomain width = (nx_gl / nsubdomains_x) * dx
+    host domain     = nsubdomains_x * dx_hm_km
+
+`setparm` prints all of these at startup. The configurations we have used:
+
+| case | `nx_gl` | `nsubdomains_x` | `dx_hm_km` | subdomain | host domain |
+|---|---|---|---|---|---|
+| Walker | 2560 | 160 | 64. | 64 km | 10240 km |
+| shear, dx_hm = 128 | 1024 | 32 | 128. | 128 km | 4096 km |
+| shear, dx_hm = 64 | 2048 | 64 | 64. | 128 km | 4096 km |
+| shear, dx_hm = 32 | 4096 | 128 | 32. | 128 km | 4096 km |
+| shear, L_sub = 256 | 2048 | 32 | 128. | 256 km | 4096 km |
+
+**Why this needs watching.** It replaced `dx_hm = dx * nx / 4.0` in `setparm`, which
+silently tied the host spacing to a quarter of the subdomain width. Stating it explicitly
+is the point of the change — but it also means **`dx_hm_km` will not follow when you edit
+`nx_gl` or `nsubdomains_x`.** Change one, check all three, and read the geometry block
+`setparm` prints.
+
+**And the merge hazard.** `domain.f90` is per-experiment configuration, not code, so git
+line-merges it *without raising a conflict* and produces a hybrid of two configurations
+that compiles and runs. Merging `tend-nudging2` into this branch gives
+`nx_gl = 4096` and `nsubdomains_x = 128` from one side with `dx_hm_km = 64.` from the
+other — an 8192 km host domain that is nobody's intended setup, reported with no warning
+beyond the startup print.
+
+**This branch keeps the Walker configuration** (2560 / 160 / 64.). That discards nothing:
+the only `domain.f90` change on `tend-nudging2` is `nx_gl` 2560 -> 4096 and
+`nsubdomains_x` 160 -> 128, i.e. the dx_hm = 32 km shear setup, which you set per
+experiment anyway. **Set the three numbers deliberately after any pull or merge; never
+accept git's version of this file.**
+
+## Merging into `tend-nudging2`
+
+Already done from our side: `15b4990` is merged into `fix-coupling-residual`, with
+`setparm.f90` resolved to `dx_hm = dx_hm_km * 1000.`, the `public ::` list in
+`module_hostmodel.f90` keeping every name from both sides, and `domain.f90` kept as
+above. So you can take this branch without untangling anything — just set `domain.f90`
+for whatever you are running.
+
 
 ---
 
@@ -268,6 +289,32 @@ models have zero or negative group velocity. WRF's effective resolution is ~7*dx
   day N, symlink a new caseid onto index N — see how `shrL64d30` is built in `RESTART/`.
   Pointing `caseid_restart` at the run's own name looks for an *un-indexed* file, creates
   it empty, and dies with `forrtl: severe (24)`.
+- **Adding a `use` statement to an existing file silently breaks the parallel build.**
+  The Makefile gets its build order from `include Depends`, which is generated under the
+  rule `Depends: Srcfiles Filepath` — so it is regenerated only when the *list* of source
+  files changes, never when a file's *contents* change. Your `15b4990` added
+  `use module_hostmodel` to `forcing.f90` and `setdata.f90`, both existing files, so
+  `Depends` stayed stale and `make -j8` compiled `forcing.o` before `module_hostmodel.o`,
+  against the previous build's `.mod`:
+
+      forcing.f90(7): error #6580: Name in only-list does not exist or is not accessible.
+                                   [SET_UG0_FROM_EXTERNAL_PROFILE]
+
+  **Fix: delete `$SAM_OBJ/Depends` (or the whole `OBJ`) and rebuild.** After a clean
+  rebuild the edges are right:
+
+      forcing.o : forcing.f90 simple_ocean.o module_hostmodel.o vars.o params.o microphysics.o
+      setdata.o : setdata.f90 vars.o simple_ocean.o module_hostmodel.o params.o microphysics.o sgs.o
+
+  This one failed loudly because the symbol did not exist. The same stale `Depends` can
+  fail **silently**: if a module's *data* changes — a default in `vars.f90`, a variable's
+  kind — and a dependent file is not recompiled because the edge is missing, you link two
+  inconsistent copies of the same module, and it compiles, links and runs. Delete
+  `Depends` whenever you add or change a `use`.
+- **`nstop` must be at least `nstat`.** `printout.f90:44` has
+  `if(nstop-nstep.lt.nstat) call task_abort()`. Setting a short `nstop` for a quick test
+  without lowering `nstat` aborts during startup — and the job then **hangs holding the
+  whole allocation** until the walltime, while `squeue` still reports it RUNNING.
 - **`hm_only = .true.` could not do a wind-shear experiment — your `15b4990` fixes this.**
   On this branch as of `b37cf5d`, the host develops the shear (the external-profile
   nudging is applied inside the subcycle loop, after the `hm_only` branch) but `main.f90`

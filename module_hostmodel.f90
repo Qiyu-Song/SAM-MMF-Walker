@@ -4,7 +4,9 @@ module module_hostmodel
   implicit none
   private
   public :: host_model_init, host_model_finalize, host_model_evolve, nudging_hm, nudging_hm_nouv, modify_U_for_subdomain, &
-            remove_nyquist_U_for_subdomain, remove_residual_U_for_subdomain, set_sin_x_sst
+            remove_nyquist_U_for_subdomain, remove_residual_U_for_subdomain, &
+            set_sin_x_sst, &
+            set_initial_U_from_external_profile, set_ug0_from_external_profile
  
 
 contains
@@ -46,6 +48,15 @@ subroutine host_model_init()
     ! u_sub_map_save = 0.
     ! u_hm_updated_map_save = u_hm_map_save
     ! ------------------------------------------------
+    if (apply_hm_u_external_nudging) then
+      call ensure_external_u_profile_loaded()
+      do k = 1, nzm
+        u_hm_map_save(:,k)         = u_external_profile(k)
+        u_hm_updated_map_save(:,k) = u_external_profile(k)
+        u_sub_map_save(:,k)        = u_external_profile(k)
+      end do
+    end if
+
     do i = 1, nsx
       t_hm_map_save(i,:) = t0(:)
       t_hm_updated_map_save(i,:) = t0(:)
@@ -61,18 +72,84 @@ subroutine host_model_init()
     ! end if
   end if
 
-  if (apply_hm_u_external_nudging) then
-    if (.not. u_external_profile_loaded) then
-      call load_external_u_profile(trim(large_u_profile_filename), u_external_profile, nzm, u_external_profile_loaded)
-      if (u_external_profile_loaded) then
-        print *, 'external u profile loaded successfully.'
-      else
-        print *, 'WARNING: external u profile not loaded.'
-      end if
-    end if
-  end if
 
 end subroutine host_model_init
+
+
+subroutine ensure_external_u_profile_loaded()
+! 保证 u_external_profile 已经从 large_u_profile_filename 读进来。
+! 幂等：读过一次之后再调用直接返回，所以 setdata / forcing / host_model_init
+! 都可以放心调用（setdata 最早，剩下的就是 no-op）。
+!
+! 注意：读进来的廓线直接对应模式层 z(k), k=1..nzm，不做任何垂直插值，
+! 并且被解释为"已经在 Galilean 平移参考系里"（即已减掉 ug），
+! 与 nudge_u_to_external_profile 的用法一致。
+  use vars, only: u_external_profile, u_external_profile_loaded, large_u_profile_filename
+  use grid, only: masterproc
+  implicit none
+
+  if (u_external_profile_loaded) return
+
+  call load_external_u_profile(trim(large_u_profile_filename), &
+                               u_external_profile, nzm, u_external_profile_loaded)
+
+  if (.not. u_external_profile_loaded) then
+    if (masterproc) then
+      print *, '****** ERROR: apply_hm_u_external_nudging=.true. but the large-scale U'
+      print *, '       profile could not be loaded. Aborting rather than silently'
+      print *, '       running with a zero wind profile.'
+      print *, '       large_u_profile_filename = ', trim(large_u_profile_filename)
+      print *, '       (an ABSOLUTE path with nzm =', nzm, ' rows, one value per line)'
+    end if
+    call task_abort()
+  end if
+
+  if (masterproc) print *, 'external u profile loaded successfully from ', &
+                           trim(large_u_profile_filename)
+
+end subroutine ensure_external_u_profile_loaded
+
+
+subroutine set_initial_U_from_external_profile()
+! setdata 专用：把 CRM 的初始风廓线换成外部大尺度风廓线，
+! 这样就不必每换一个风切变实验就手工改 snd 文件里 u 那一列。
+!
+! 必须在 setdata 里 "u0(k) = u0(k) - ug" 之后、"u(i,j,k) = u0(k)" 之前调用，
+! 因为廓线被解释为已经在平移参考系里（见 ensure_external_u_profile_loaded）。
+  use vars, only: u0, ug0, u_domain_avg, u_external_profile
+  implicit none
+  integer k
+
+  call ensure_external_u_profile_loaded()
+
+  do k = 1, nzm
+    u0(k)           = u_external_profile(k)
+    ug0(k)          = u_external_profile(k)
+    u_domain_avg(k) = u_external_profile(k)
+  end do
+
+end subroutine set_initial_U_from_external_profile
+
+
+subroutine set_ug0_from_external_profile()
+! forcing 专用：只覆盖 ug0（"观测/地转"参考廓线），绝不碰 u0
+! —— 在 forcing 里 u0 是 diagnose 出来的当前 subdomain 平均风，是诊断量不是目标，
+!    damping() 的 sponge 层要用它。
+!
+! forcing() 每步都会从 snd（或 dolargescale 时的 lsf）重新插值出 ug0，
+! 所以必须每步覆盖一次，否则 spinup 阶段 nudging() 会把 U 拉回 snd 里的值，
+! 且 docoriolis=.true. 时地转风参考也会用错。
+  use vars, only: ug0, u_external_profile
+  implicit none
+  integer k
+
+  call ensure_external_u_profile_loaded()
+
+  do k = 1, nzm
+    ug0(k) = u_external_profile(k)
+  end do
+
+end subroutine set_ug0_from_external_profile
 
 ! subroutine set_constant_sst_hm()
 !   use vars, only: sstxy,t00
@@ -2419,30 +2496,56 @@ subroutine hot_bubble(hm_step, t)
 end subroutine hot_bubble
 
 
+! subroutine cold_bubble_hm(t_hm_map)
+!     use grid
+!     use vars
+!     implicit none
+!     real, intent(inout) :: t_hm_map(nsx, nzm)
+
+!     integer :: i, k, i1, i2, k1, k2
+
+!     i1 = max(1,   nsx/2 - hm_bubble_nsubdomain_half + 1)
+!     i2 = min(nsx, nsx/2 + hm_bubble_nsubdomain_half)
+
+!     k1 = nzm + 1
+!     k2 = 0
+!     do k = 1, nzm
+!       if (z(k) .ge. hm_bubble_z_bot .and. z(k) .le. hm_bubble_z_top) then
+!         k1 = min(k1, k)
+!         k2 = max(k2, k)
+!       end if
+!     end do
+
+!     do k = k1, k2
+!       do i = i1, i2
+!         t_hm_map(i,k) = t_hm_map(i,k) + hm_bubble_dtemp
+!       end do
+!     end do
+
+! end subroutine cold_bubble_hm
+
 subroutine cold_bubble_hm(t_hm_map)
     use grid
     use vars
     implicit none
     real, intent(inout) :: t_hm_map(nsx, nzm)
 
-    integer :: i, k, i1, i2, k1, k2
+    integer :: i, k, i1, i2
+    real :: pi, zzz, rrr
+
+    pi = acos(-1.0)
 
     i1 = max(1,   nsx/2 - hm_bubble_nsubdomain_half + 1)
     i2 = min(nsx, nsx/2 + hm_bubble_nsubdomain_half)
 
-    k1 = nzm + 1
-    k2 = 0
     do k = 1, nzm
-      if (z(k) .ge. hm_bubble_z_bot .and. z(k) .le. hm_bubble_z_top) then
-        k1 = min(k1, k)
-        k2 = max(k2, k)
+      zzz = z(k)
+      if (zzz .lt. hm_bubble_z_top) then          
+        rrr = cos(pi/2.*zzz/hm_bubble_z_top)**2   
+        do i = i1, i2
+          t_hm_map(i,k) = t_hm_map(i,k) + hm_bubble_dtemp*rrr
+        end do
       end if
-    end do
-
-    do k = k1, k2
-      do i = i1, i2
-        t_hm_map(i,k) = t_hm_map(i,k) + hm_bubble_dtemp
-      end do
     end do
 
 end subroutine cold_bubble_hm
@@ -2923,6 +3026,7 @@ subroutine idft_1d(x_in_complex, x_out_real, N_size)
 end subroutine idft_1d
 
 subroutine load_external_u_profile(filename, arr, nlev, loaded)
+  use grid, only: masterproc
   implicit none
 
   character(len=*), intent(in)  :: filename
@@ -2935,12 +3039,13 @@ subroutine load_external_u_profile(filename, arr, nlev, loaded)
   real, allocatable :: buf(:)
 
   arr(:) = 0.0
+  loaded = .false.   ! intent(out)，必须在任何 return 之前赋值
   unitno = 99   ! open文件的时候给这个文件一个编号，之后read都用这个编号
 
   ! ---- first pass: count how many rows ----
   open(unit=unitno, file=filename, status='old', action='read', iostat=ios)
   if (ios /= 0) then
-    print *, 'WARNING: cannot open file: ', trim(filename)
+    if (masterproc) print *, 'WARNING: cannot open file: ', trim(filename)
     return
   end if
 
@@ -2953,7 +3058,7 @@ subroutine load_external_u_profile(filename, arr, nlev, loaded)
   close(unitno)
 
   if (nfile <= 0) then
-    print *, 'WARNING: file is empty: ', trim(filename)
+    if (masterproc) print *, 'WARNING: file is empty: ', trim(filename)
     return
   end if
 
@@ -2962,7 +3067,7 @@ subroutine load_external_u_profile(filename, arr, nlev, loaded)
   ! ---- second pass: actually read values ----
   open(unit=unitno, file=filename, status='old', action='read', iostat=ios)
   if (ios /= 0) then
-    print *, 'WARNING: cannot reopen file: ', trim(filename)
+    if (masterproc) print *, 'WARNING: cannot reopen file: ', trim(filename)
     deallocate(buf)
     return
   end if
@@ -2970,7 +3075,7 @@ subroutine load_external_u_profile(filename, arr, nlev, loaded)
   do k = 1, nfile
     read(unitno, *, iostat=ios) buf(k)
     if (ios /= 0) then
-      print *, 'WARNING: bad format in file: ', trim(filename), ', line=', k
+      if (masterproc) print *, 'WARNING: bad format in file: ', trim(filename), ', line=', k
       close(unitno)
       deallocate(buf)
       return
@@ -2983,23 +3088,27 @@ subroutine load_external_u_profile(filename, arr, nlev, loaded)
   arr(1:min(nlev, nfile)) = buf(1:min(nlev, nfile))
 
   if (nfile > nlev) then
-    print *, 'WARNING: profile longer than target length; tail truncated.'
+    if (masterproc) print *, 'WARNING: profile longer than target length; tail truncated.'
   else if (nfile < nlev) then
-    print *, 'WARNING: profile shorter than target length; tail padded with zeros.'
+    if (masterproc) print *, 'WARNING: profile shorter than target length; tail padded with zeros.'
   end if
 
-  print *, 'target nlev = ', nlev
-  print *, 'nfile (rows in file) = ', nfile
-
-  print *, '----------------------------------------'
-  print *, 'loaded = ', loaded
-  print *, 'final profile used in arr(:):'
-  do k = 1, nlev
-    print *, 'k = ', k, ', arr(k) = ', arr(k)
-  end do
-  print *, '----------------------------------------'
-
   loaded = .true.
+
+  ! 只在 masterproc 上打印，否则 160 个 rank 各刷 70 行日志
+  if (masterproc) then
+    print *, 'target nlev = ', nlev
+    print *, 'nfile (rows in file) = ', nfile
+
+    print *, '----------------------------------------'
+    print *, 'loaded = ', loaded
+    print *, 'final profile used in arr(:):'
+    do k = 1, nlev
+      print *, 'k = ', k, ', arr(k) = ', arr(k)
+    end do
+    print *, '----------------------------------------'
+  end if
+
   deallocate(buf)
 
 end subroutine load_external_u_profile
