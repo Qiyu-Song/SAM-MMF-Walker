@@ -48,6 +48,42 @@ done
 
 ---
 
+## Merging into `tend-nudging2`
+
+Your branch has diverged by one commit (`15b4990`, 2026-09-11). A merge conflicts in
+**exactly two files**, both trivially:
+
+**`setparm.f90`** — one line, the `dx_hm` definition:
+
+```
+<<<<<<< fix-coupling-residual
+          dx_hm = dx_hm_km * 1000.     ! host grid spacing, set in domain.f90
+=======
+          dx_hm = dx * nx / 4.0  ! 如果要改分辨率
+>>>>>>> tend-nudging2
+```
+
+Take ours, then set `dx_hm_km` explicitly in `domain.f90`. Your formula is
+`subdomain_width/4`; on your current `domain.f90` (`nx_gl = 4096`,
+`nsubdomains_x = 128`, so `nx = 32` and the subdomain is 128 km) it evaluates to
+**`dx_hm_km = 32.`** — set that and the merge is behaviour-preserving. The point of the
+change is that `dx_hm` is now stated next to `nx_gl` and `nsubdomains_x`, the two numbers
+it has to be consistent with, instead of being implied by a formula in `setparm`.
+
+**`module_hostmodel.f90`** — the `public ::` list, where we both added names. Keep all of
+them:
+
+```fortran
+  public :: host_model_init, host_model_finalize, host_model_evolve, nudging_hm, &
+            nudging_hm_nouv, modify_U_for_subdomain, remove_nyquist_U_for_subdomain, &
+            remove_residual_U_for_subdomain, set_sin_x_sst, &
+            set_initial_U_from_external_profile, set_ug0_from_external_profile
+```
+
+`domain.f90` auto-merges. Nothing else conflicts.
+
+---
+
 ## The five commits
 
 Four of the five are drop-in: at their default settings the model reproduces
@@ -232,22 +268,31 @@ models have zero or negative group velocity. WRF's effective resolution is ~7*dx
   day N, symlink a new caseid onto index N — see how `shrL64d30` is built in `RESTART/`.
   Pointing `caseid_restart` at the run's own name looks for an *un-indexed* file, creates
   it empty, and dies with `forrtl: severe (24)`.
-- **`hm_only = .true.` cannot do a wind-shear experiment properly.** The host develops the
-  shear (the external-profile nudging is applied inside the subcycle loop, after the
-  `hm_only` branch), but `main.f90` takes the `nudging()` path instead of `nudging_hm()`,
-  which relaxes the CRM mean wind toward `ug0` from `snd` — whose u column is zero. So you
-  get a sheared host over unsheared CRMs. If you need this, put the shear profile in
-  `snd`'s u column; that is the only path to the CRMs in `hm_only` mode.
+- **`hm_only = .true.` could not do a wind-shear experiment — your `15b4990` fixes this.**
+  On this branch as of `b37cf5d`, the host develops the shear (the external-profile
+  nudging is applied inside the subcycle loop, after the `hm_only` branch) but `main.f90`
+  takes the `nudging()` path instead of `nudging_hm()`, which relaxes the CRM mean wind
+  toward `ug0` from `snd` — whose u column is zero — giving a sheared host over unsheared
+  CRMs. Your `set_ug0_from_external_profile`, called every step at the end of `forcing`,
+  makes `ug0` *be* the shear profile, so the `nudging()` path now targets the shear too.
+  After the merge this trap is gone.
 
 ## What we deliberately did not change
 
-- **The shear profile still comes from a standalone text file**
-  (`large_u_profile_filename`, nudged at `tauls_large_scale`), not from `snd`. Moving it
-  into `snd` would unify the mechanism with stock SAM, remove the ~3 h spin-up, and make
-  `hm_only` shear runs valid — but it would invalidate every existing shear `prm`, and we
-  measured that it does **not** change convective organization (`shrI_L128`, which has the
-  full profile in `snd`, is indistinguishable from `shr_L128`: neighbour-column precip
-  correlation 0.896 vs 0.903, phase speed +6.8 vs +7.1 m/s). Left alone deliberately.
+- **How the shear profile reaches the model — you have already solved this better than we
+  proposed.** On `fix-coupling-residual` the profile is read from `large_u_profile_filename`
+  and applied only as a host-side nudging at `tauls_large_scale`; `snd`'s u column is zero,
+  so the CRMs never see it except through the host increment. We considered moving the
+  profile into `snd` and rejected it, because it would invalidate every existing shear
+  `prm` and we measured that it does **not** change convective organization (`shrI_L128`,
+  which has the full profile in `snd`, is indistinguishable from `shr_L128`:
+  neighbour-column precip correlation 0.896 vs 0.903, phase speed +6.8 vs +7.1 m/s).
+
+  Your `15b4990` takes the better third option: keep the text file as the single source of
+  truth, and overwrite `ug0` from it every step in `forcing` plus the CRM initial wind in
+  `setdata`. That avoids hand-editing `snd` per experiment, removes the spin-up, and fixes
+  the `hm_only` case — none of which the `snd` route would have done as cleanly. Adopt
+  yours; we have nothing to add here.
 - **`diffuse_TQ` remains commented out** at the `host_model_evolve` call site.
 - **No CFL check in the host.** `dx_hm = 32 km` with `hm_subcycle = 5` blew up at day 29 of
   a 60-day Walker run; `hm_subcycle = 10` fixed it. The failure is silent until it happens.
