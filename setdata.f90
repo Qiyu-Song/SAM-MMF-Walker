@@ -6,6 +6,7 @@ use params
 use simple_ocean, only: set_sst
 use microphysics, only: micro_init, micro_proc
 use sgs, only: sgs_init, sgs_proc
+use module_hostmodel, only: set_initial_U_from_external_profile
 implicit none
 	
 integer ndmax,n,i,j,k,kb,iz,it,jt
@@ -235,10 +236,14 @@ prespoti(:) = (1000./presi(:))**(rgas/cp)
 ! recompute pressure levels (for consistancy):
 
 !	call pressz()
-        
+
+! 风切变实验：用 large_u_profile_filename 里的大尺度风廓线覆盖 snd 的 u 列，
+! 这样换实验只需要换 prm 里的文件名，不用手工改 snd。
+! 放在这里是因为上面的 "u0 = u0 - ug" 已经做完，而下面 u(i,j,k)=u0(k) 还没开始。
+if(apply_hm_u_external_nudging) call set_initial_U_from_external_profile()   
 !-------------------------------------------------------------
 !       Initial thernodynamic profiles: 
-	
+ 
 do k=1,nzm
 
   gamaz(k)=ggr/cp*z(k)
