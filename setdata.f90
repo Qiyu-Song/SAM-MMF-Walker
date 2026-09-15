@@ -6,7 +6,7 @@ use params
 use simple_ocean, only: set_sst
 use microphysics, only: micro_init, micro_proc
 use sgs, only: sgs_init, sgs_proc
-use module_hostmodel, only: set_initial_U_from_external_profile
+use module_hostmodel, only: set_initial_U_from_external_profile, set_initial_bubble_in_crm
 implicit none
 	
 integer ndmax,n,i,j,k,kb,iz,it,jt
@@ -298,6 +298,11 @@ do k=1,nzm
   end do 
  end do 
 end do 
+
+! 初始温度扰动（bubble）：在这里加，是因为上面 t/tabs 刚被设成初始廓线，
+! 而下面 tabs0 还要从 tabs 重新平均一遍，所以扰动会自动进到 tabs0 里。
+! host model 那边在 host_model_init 里加同一个扰动，见 module_hostmodel。
+if(add_initial_bubble) call set_initial_bubble_in_crm()
 
 dudt = 0.
 dvdt = 0.

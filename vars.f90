@@ -312,6 +312,15 @@ real :: hm_bubble_z_top = 5000.0   ! 扰动区顶 [m]
 integer :: hm_bubble_nsubdomain_half = 1        ! 水平半宽（subdomain数）
 real :: hm_bubble_dtemp = -0.25   ! 每一步的扰动 [K]
 
+! 初始温度扰动（cold / warm bubble）：不再分成好几个 host model step 慢慢加，
+! 而是在初始化的时候一次性加进去，纯粹相当于改初值。
+! host model 和 CRM subdomain 用同一个扰动廓线，见 module_hostmodel 里的
+! initial_bubble_dt_profile / add_initial_bubble_to_hm / set_initial_bubble_in_crm。
+logical :: add_initial_bubble = .false.
+real :: init_bubble_z_top = 5000.0              ! 扰动区顶 [m]（地面最强，到这里衰减为 0）
+integer :: init_bubble_nsubdomain_half = 1      ! 水平半宽（subdomain 数）
+real :: init_bubble_dtemp = -0.25               ! 扰动幅度 [K]
+
 logical :: do_remove_nyquist_u = .false.
 real ug0_nyquist(nzm)   ! Nyquist (2-subdomain) component of U to be removed from each subdomain
 
