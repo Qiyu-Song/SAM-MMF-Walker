@@ -525,7 +525,36 @@ folded into something else. In the meantime `setparm` prints the full audit at s
      `setdata`, which restarts skip), so the `- dt_local(k)` would subtract something
      that was never added. Only reachable with `hm_spinup_step > 0`; it is 0 in
      `vars.f90:264` and in every `prm` here.
-- **`diffuse_TQ` remains commented out** at the `host_model_evolve` call site.
+- **`diffuse_TQ` is gone.** It was a grad^2 smoother for the host `t_hm_map` /
+  `q_hm_map`; the subroutine existed but its only call site was commented out, so it
+  had never run. Removed rather than left looking like an available option. Three
+  reasons:
+
+  1. Not needed. The 2dx problem the `hm_smoother` work addresses is a property of the
+     **U staggering**. With `subdomain_center_at_hm_u_center = .true.` (the default in
+     `vars.f90:354`, and set explicitly in all 61 `prm` files here) the CRM subdomain
+     centres are collocated with the host T/Q cell centres, so T and Q are coupled by a
+     plain increment, `t_hm_map = t_hm_map_save + t0_in - t_sub_map_save`, with no
+     averaging and no inverse recursion. Only U goes through
+     `center2face_U_inverse_filtered` / `face2center_U_inverse_filtered`, whose forward
+     transfer `|cos(theta/2)|` vanishes at 2dx and whose inverse carries the `(-1)^i`
+     null space. Measured 2dx spike index (m=80 amplitude over the median of m=20..60)
+     in `wk_h4a` day 40-60: `T_Out` 0.67-0.74, `Q_Out` 0.46-0.70, against pure SAM
+     coarse-grained to the same 160 columns at 0.33-0.43 — and those are lower bounds,
+     since a 16-point block average attenuates the coarse-grid Nyquist by
+     sinc(pi/2) = 0.637, which puts pure SAM at roughly 0.52-0.68. No clear excess.
+     **If anyone ever sets `subdomain_center_at_hm_u_center = .false.`**, T/Q take the
+     `else` branch and inherit exactly the same machinery as U, and this question
+     reopens.
+  2. It was broken as written. `t_map` was `intent(inout)` and updated in place, so the
+     loop read the already-updated `i-1` value — not a symmetric Laplacian, and
+     direction-dependent. It also modified the field instead of a tendency and did not
+     divide by `dt_hm_subcycle`, so its `diffuse_intensity` meant something different
+     from the same parameter in `diffuse_u_lap`, and it looped to `nzm` where
+     `diffuse_u_lap` stops at `nzm-2`.
+  3. It was never wired into the `hm_smoother` dispatcher, and it read
+     `diffuse_intensity`, which the recommended configuration (`hm_smoother = 2`) sets
+     to 0. Uncommenting it would have been a no-op anyway.
 - **No CFL check in the host.** `dx_hm = 32 km` with `hm_subcycle = 5` blew up at day 29 of
   a 60-day Walker run; `hm_subcycle = 10` fixed it. The failure is silent until it happens.
 - **`nudging_hm` applies `ug0_hm`, not `ug0`.** In coupled MMF mode `donudging_uv` gates

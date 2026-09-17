@@ -569,8 +569,6 @@ subroutine host_model_evolve( &
     tmp_dudt = dudt_hm
     call diffuse_u(u_hm_map, dudt_hm)
     call diffuse_w(w_hm_map, dwdt_hm)
-    ! call diffuse_TQ(t_hm_map)
-    ! call diffuse_TQ(q_hm_map)
     ! call output_host_model_single_variable(dudt_hm-tmp_dudt, 'dudt_dif', 'dudt_diffuse' , 'm/s2', icyc)
 
 
@@ -2987,26 +2985,6 @@ subroutine diffuse_w_smag(w_map,dwdt_hm)
       end do
     end do
 end subroutine diffuse_w_smag
-
-subroutine diffuse_TQ(t_map)
-    use vars
-    implicit none
-    real, intent(inout)   :: t_map(nsx,nzm)
-
-    integer i,ic,ib,k
-   
-    do k = 1,nzm
-      do i=1,nsx
-        ic = i + 1
-        if (ic > nsx) ic = ic - nsx
-        ib = i - 1
-        if (ib < 1) ib = ib + nsx
-        t_map(i,k) = t_map(i,k) + diffuse_intensity*(t_map(ic,k) -2*t_map(i,k) + t_map(ib,k))
-      end do
-    end do
-
-end subroutine diffuse_TQ
-
 
 
 subroutine modify_U_for_subdomain()
