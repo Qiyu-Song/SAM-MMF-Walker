@@ -70,7 +70,8 @@ NAMELIST /KUANG_PARAMS/ dompiensemble, &
                 tau_damp_mean, do_damp_hm_mean, &
                 do_remove_nyquist_u, do_remove_coupling_residual, &
                 do_fix_u_halo, &
-                do_hm_bubble, hm_bubble_step, hm_bubble_z_bot, hm_bubble_z_top, hm_bubble_nsubdomain_half, hm_bubble_dtemp
+                do_hm_bubble, hm_bubble_step, hm_bubble_z_bot, hm_bubble_z_top, hm_bubble_nsubdomain_half, hm_bubble_dtemp, &
+                add_initial_bubble, init_bubble_z_top, init_bubble_nsubdomain_half, init_bubble_dtemp
 
 
                 

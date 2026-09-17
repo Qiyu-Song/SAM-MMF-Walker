@@ -6,7 +6,8 @@ module module_hostmodel
   public :: host_model_init, host_model_finalize, host_model_evolve, nudging_hm, nudging_hm_nouv, modify_U_for_subdomain, &
             remove_nyquist_U_for_subdomain, remove_residual_U_for_subdomain, &
             set_sin_x_sst, &
-            set_initial_U_from_external_profile, set_ug0_from_external_profile
+            set_initial_U_from_external_profile, set_ug0_from_external_profile, &
+            set_initial_bubble_in_crm
  
 
 contains
@@ -66,6 +67,12 @@ subroutine host_model_init()
       q_sub_map_save(i,:) = q0(:)
       
     end do
+
+    ! 初始温度扰动（bubble）：只在 host model 起步的这一刻加一次，之后不再加。
+    ! 必须放在上面这个循环之后，因为它是在已经填好的 t_*_map_save 上做修正。
+    if (add_initial_bubble) then
+      call add_initial_bubble_to_hm()
+    end if
     
     ! if (hm_only) then
     !   call set_sin_x_sst_for_hm(t_hm_map_save)
@@ -2549,6 +2556,138 @@ subroutine cold_bubble_hm(t_hm_map)
     end do
 
 end subroutine cold_bubble_hm
+
+
+!===============================================================================
+! 初始温度扰动（cold / warm bubble），加在"初始化"这一刻，相当于直接改初值。
+!
+! 和上面 cold_bubble_hm 的区别：cold_bubble_hm 是在 host_model_evolve 里，
+! 前 hm_bubble_step 个 host model step 每一步都往 t_hm_map 里加一次；
+! 下面这一套只加一次，而且 host model 和 CRM subdomain 加的是同一个扰动，
+! 所以用的是另一组 namelist 变量（add_initial_bubble / init_bubble_*），
+! 不和 do_hm_bubble / hm_bubble_* 混用。
+!
+! 分工：
+!   initial_bubble_dt_profile  -- 扰动的形状（两边共用，保证完全一致）
+!   add_initial_bubble_to_hm   -- host model 侧，在 host_model_init 里调用
+!   set_initial_bubble_in_crm  -- CRM 侧，在 setdata 里调用
+!===============================================================================
+
+subroutine initial_bubble_dt_profile(isub, dt_col)
+! 给定 subdomain 编号 isub（1..nsx），返回该列上的初始温度扰动廓线 dt_col(1:nzm)。
+!
+! 水平：以整个 host model 区域中心为中心，左右各 init_bubble_nsubdomain_half 个
+!       subdomain，落在里面的整列都加同样的扰动，落在外面的返回 0。
+! 垂直：地面最强（= init_bubble_dtemp），到 init_bubble_z_top 处衰减到 0，
+!       形状用 cos^2，和原来的 cold_bubble_hm 保持一致。
+    use grid
+    use vars
+    implicit none
+    integer, intent(in) :: isub
+    real, intent(out) :: dt_col(nzm)
+
+    integer :: k, i1, i2
+    real :: pi, zzz
+
+    dt_col = 0.
+
+    if (.not. add_initial_bubble) return
+
+    i1 = max(1,   nsx/2 - init_bubble_nsubdomain_half + 1)
+    i2 = min(nsx, nsx/2 + init_bubble_nsubdomain_half)
+
+    if (isub .lt. i1 .or. isub .gt. i2) return
+
+    pi = acos(-1.0)
+
+    do k = 1, nzm
+      zzz = z(k)
+      if (zzz .lt. init_bubble_z_top) then
+        dt_col(k) = init_bubble_dtemp * cos(pi/2.*zzz/init_bubble_z_top)**2
+      end if
+    end do
+
+end subroutine initial_bubble_dt_profile
+
+
+subroutine add_initial_bubble_to_hm()
+! host model 侧的初始扰动，由 host_model_init 调用。
+!
+! host_model_init 把每一列都填成本 rank 的 t0(:)，而 t0 在 setdata 里已经被
+! set_initial_bubble_in_crm 加过"本 rank 自己那一份"扰动，所以这里先把 dt_local
+! 减掉拿回无扰动的基准廓线，再按列加上该 subdomain 应有的扰动。
+! （只有 nsx/2 附近的 rank 才有 dt_local /= 0；对 masterproc 通常就是 0。）
+!
+! 三个 save 数组都要改：
+!   t_hm_map_save / t_hm_updated_map_save -- host model 自己的温度场；hm_only 的
+!       时候 host model 只认 t_hm_updated_map_save（完全不看 CRM），所以它必须加上，
+!       否则 host model only 的实验里 bubble 根本进不去 host model。
+!   t_sub_map_save -- host model 记住的"上一次看到的 CRM 状态"。CRM 那边的初值
+!       已经带扰动了，如果这里不加，第一次耦合时 (t0_in - t_sub_map_save) 会把
+!       CRM 的 bubble 当成对流调整再送进 host model 一次，等于重复计入。
+    use grid
+    use vars
+    implicit none
+    integer :: i, k, isub, i1, i2
+    real :: dt_col(nzm), dt_local(nzm)
+
+    if (.not. add_initial_bubble) return
+
+    isub = mod(rank, nsubdomains_x) + 1
+    call initial_bubble_dt_profile(isub, dt_local)
+
+    do i = 1, nsx
+      call initial_bubble_dt_profile(i, dt_col)
+      do k = 1, nzm
+        t_hm_map_save(i,k)         = t_hm_map_save(i,k)         - dt_local(k) + dt_col(k)
+        t_hm_updated_map_save(i,k) = t_hm_updated_map_save(i,k) - dt_local(k) + dt_col(k)
+        t_sub_map_save(i,k)        = t_sub_map_save(i,k)        - dt_local(k) + dt_col(k)
+      end do
+    end do
+
+    if (masterproc) then
+      i1 = max(1,   nsx/2 - init_bubble_nsubdomain_half + 1)
+      i2 = min(nsx, nsx/2 + init_bubble_nsubdomain_half)
+      print *, 'initial bubble added: dtemp =', init_bubble_dtemp, ' K, z_top =', &
+               init_bubble_z_top, ' m, subdomains ', i1, ' to ', i2
+    end if
+
+end subroutine add_initial_bubble_to_hm
+
+
+subroutine set_initial_bubble_in_crm()
+! CRM 侧的初始扰动，由 setdata 调用。
+!
+! 把同一个 bubble 加到本 rank 这个 subdomain 的 CRM 温度场上（t 和 tabs 一起加，
+! 这样 tabs = t - gamaz 的关系不被破坏），并同步更新 t0，
+! 这样第一次 host model 耦合拿到的 t0_in 就已经带着扰动，
+! 和 host model 侧 add_initial_bubble_to_hm 里的 t_sub_map_save 对得上。
+!
+! 必须在 setdata 里 "t(i,j,k)=t0(k) / tabs(i,j,k)=tabs0(k)" 这个循环之后调用；
+! tabs0 在后面会由 tabs 重新平均出来，所以这里不用手工改 tabs0。
+    use grid
+    use vars
+    implicit none
+    integer :: i, j, k, isub
+    real :: dt_col(nzm)
+
+    if (.not. add_initial_bubble) return
+
+    isub = mod(rank, nsubdomains_x) + 1
+    call initial_bubble_dt_profile(isub, dt_col)
+
+    do k = 1, nzm
+      do j = 1, ny
+        do i = 1, nx
+          t(i,j,k)    = t(i,j,k)    + dt_col(k)
+          tabs(i,j,k) = tabs(i,j,k) + dt_col(k)
+        end do
+      end do
+      t0(k) = t0(k) + dt_col(k)
+    end do
+
+end subroutine set_initial_bubble_in_crm
+
 
 subroutine buoyancy_only_in_hm(t_hm_map, q_hm_map, dwdt_hm)   !  qni_hm_map, qnl_hm_map, qpi_hm_map, qpl_hm_map,
   use vars
