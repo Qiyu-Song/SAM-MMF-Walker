@@ -113,33 +113,126 @@ number (by 0.2%, in shear runs only).
 
 ### 1. [`79450ac`](https://github.com/Qiyu-Song/SAM-MMF-Walker/commit/79450ac90f52a3b0632778626efa15c9482e8252) — remove the coupling residual orphaned in subdomain U
 
-The U round trip (host faces → subdomain centres → back) has spectral gain
-`|cos(pi*m/nsx)|`, which is **exactly zero at m = nsx/2**. So part of the CRM-side U
-adjustment cannot be handed to the host at all and stays stranded in the subdomain — this
-is what produced the persistent stripes in the subdomain-mean U.
+This is the fix for the **persistent stripes in the subdomain-mean U**. The mechanism is
+worth spelling out, because the fix only makes sense once you see where the stripes come
+from, and because the same structure decides which field is affected.
 
-The fix forms, at every coupling step,
+#### The geometry
 
-    u_resid = u_sub - return( send( u_sub ) )
+With `subdomain_center_at_hm_u_center = .true.` (the setting we use), the subdomain
+centres coincide with the host **cell centres**, where T and Q live. Host `u` lives on
+the **faces** of the C grid. So U — and only U — has to be interpolated in both
+directions, while T, Q and the condensates are collocated and pass through untouched:
 
-using the **same** send/return operators the coupling already uses, and subtracts it from
-the CRM-mean U. Its spectral weight is exactly `1 - h^2` where `h` is the coupling's own
-transfer: identically zero wherever the host can respond, one where it is blind. No tuned
-parameter and no new timescale.
+    t_hm_map = t_hm_map_save + t0_in - t_sub_map_save      ! direct increment, no operator
 
-The reason this is better than "remove the 2*dx mode" is that the blind set is not only
-Nyquist. With the inherited shoulder at `k1 = 0.95` the partly-invisible band is
-k = 77–80, and the weight follows the shoulder automatically
-(`1 - h^2` = 0.27 / 0.75 / 0.98 / 1.00 at k = 77–80).
+If you flip that switch to `.false.`, U becomes the collocated field and T/Q become the
+interpolated ones, so everything below would apply to T/Q instead.
+
+#### The forward operators are 2-point averages, and they are lossy
+
+    center2face_U:  u_face(i)   = 0.5*( u_center(i) + u_center(i-1) )
+    face2center_U:  u_center(i) = 0.5*( u_face(i)   + u_face(i+1)   )
+
+Both have spectral transfer `|cos(theta/2)|` with `theta = pi*m/(nsx/2)`. That is
+**exactly zero at theta = pi**, i.e. at `m = nsx/2` — the wave that alternates from one
+subdomain to the next. Averaging annihilates it, in both directions.
+
+#### Why an inverse, and why the inverse alone cannot exist
+
+Because plain averaging loses information, the round trip host -> CRM -> host would
+smear the field twice. The inherited scheme instead **deconvolves**: given the average
+and one endpoint, solve for the other. Both inverses are the same marching recursion:
+
+    face2center_U_inverse:  u_center(i+1) = 2*u_face_filtered(i)   - u_center(i)
+    center2face_U_inverse:  u_face(i+1)   = 2*u_center_filtered(i) - u_face(i)
+
+That recursion has a homogeneous solution `x(i) = C*(-1)^i` — the alternating mode —
+which it **cannot determine**, because it is precisely the null space of the forward
+average. So each inverse projects the Nyquist component out **twice**:
+
+* **before** the recursion, from the *input*: an input carrying that component is
+  inconsistent, since no forward average could have produced it;
+* **after** the recursion, from the *output*: the marching starts from an arbitrary
+  value (the code uses 0) and therefore injects an arbitrary amount of it.
+
+You can see both projections in `face2center_U_inverse` and `center2face_U_inverse` as
+the `nyq` / `cnyq` / `fnyq` alternating-sign sums. **This happens in both directions.**
+
+#### The prefilter handles the shoulder, not the null
+
+Just below Nyquist, `1/cos(theta/2)` is finite but large, so the raw inverse amplifies.
+`damp_for_target_inverse_prefilter` multiplies by `h_target*cos(theta/2)` *before* the
+recursion divides by `cos(theta/2)`:
+
+    prefilter = h_target * cos(0.5*theta)
+
+so the **net transfer of each filtered operator is exactly `h_target`** — a raised
+cosine that is 1 below `suppress_k_start`, tapers through a shoulder, and is 0 at
+Nyquist. The original setting was `k1 = 0.95*Nyquist`. Both
+`face2center_U_inverse_filtered` and `center2face_U_inverse_filtered` call this same
+prefilter, so **the filter is applied in both directions too.**
+
+#### Where the stripes come from
+
+Each coupling step the code isolates the part of the change that the CRM generated,
+as opposed to the part the host had just handed it:
+
+    call face2center_U_inverse_filtered(u_hm_updated_map_save - u_hm_map_save, tmp1)
+    u_adj_cs = u0_in - u_sub_map_save - tmp1        ! CRM-generated, in subdomain space
+    call center2face_U_inverse_filtered(u_adj_cs, tmp2)     ! what the host is handed
+
+Sending it to the host costs one factor of `h`; mapping it back costs another. So the
+round trip passes `h^2`, and **`1 - h^2` of what the CRM produced never reaches the host
+at all**. At `m = nsx/2`, `h = 0`, so `1 - h^2 = 1` — that component is *entirely*
+untransferable. Through the shoulder it is partly untransferable.
+
+The host is the only sink for it, so it has none. Every coupling step the CRMs generate
+more, it stays in the subdomain-mean U, and it accumulates into a standing pattern whose
+structure is exactly the modes where `1 - h^2` is large — alternating from one subdomain
+to the next. **That is the striping.**
+
+The earlier mitigation was `diffuse_intensity_subdomain_large_scale`, extra diffusion on
+the subdomain-mean fields. It did suppress the stripes, but by damping the symptom, at a
+cost to the resolved scales — which is why switching it off is what exposes the free band
+cleanly.
+
+#### The fix: measure the orphan and remove it
+
+Rather than damping it, compute exactly what the host could not accept, using the **same
+send/return operators the coupling itself uses**, and subtract it from the CRM's U:
+
+    if (do_resid) then
+      call face2center_U_inverse_filtered(tmp2, tmp3)   ! what the host effectively accepted
+      u_resid_map = u_adj_cs - tmp3                      ! the orphan
+    end if
+
+`remove_residual_U_for_subdomain` then subtracts `u_resid` from each subdomain's `u`.
+Its spectral weight is exactly `1 - h^2`: identically zero wherever the host can respond,
+one where the host is blind. There is **no coefficient and no timescale** — it is a
+projection, not a damping, and it removes only what provably cannot be communicated.
+
+Because the weight is built from the coupling's own transfer, it follows the shoulder
+automatically. We verified this across three settings without retuning anything: with
+`k1 = 0.85` the subdomain-mean U spectrum lifts off the resolved-scale background from
+k ~ 69, with `k1 = 0.95` from k ~ 77, and the projection flattens both back down
+(`1 - h^2` = 0.27 / 0.75 / 0.98 / 1.00 at k = 77-80 for `k1 = 0.95`, and a pure step at
+Nyquist for `k1 = 1.00`).
 
 | namelist | default | effect at default |
 |---|---|---|
 | `do_remove_coupling_residual` | `.false.` | identical to `tend-nudging2` |
-| `do_remove_nyquist_u` | `.false.` | identical |
+| `do_remove_nyquist_u` | `.false.` | identical — the earlier, narrower version that removes only Nyquist |
 
 **Recommended**: `do_remove_coupling_residual = .true.` with `suppress_k_start = -1`
-(Nyquist only). The projection makes the wider shoulder unnecessary, and the shoulder
-costs real signal across its width.
+(Nyquist only). Once the projection is doing the work, the wide shoulder is unnecessary,
+and the shoulder costs real signal across its width.
+
+#### One thing this does *not* address
+
+This removes what the CRM produced and the host cannot accept. It says nothing about
+what the **host itself** generates at 2*dx — a separate problem, handled by the smoother
+in section 5, and diagnosed in `diag/SMOOTHER_TEST_PLAN.md`.
 
 ### 2. [`a85416b`](https://github.com/Qiyu-Song/SAM-MMF-Walker/commit/a85416b7075bed16d5cb29a9827e0a2c1e37119f) — coupling filter as a wavenumber; `dx_hm` to `domain.f90`
 
@@ -289,6 +382,13 @@ models have zero or negative group velocity. WRF's effective resolution is ~7*dx
   day N, symlink a new caseid onto index N — see how `shrL64d30` is built in `RESTART/`.
   Pointing `caseid_restart` at the run's own name looks for an *un-indexed* file, creates
   it empty, and dies with `forrtl: severe (24)`.
+- **`OBJ/Filepath` is written once and never refreshed.** `Build.csh:93` is
+  `if ( !(-e Filepath) ) then ... cat >! Filepath`, and the paths it writes are
+  absolute. So if you put this code in a *new* `SRC` directory but reuse an existing
+  `OBJ/`, the build quietly keeps compiling the **old** tree — no warning, and the exe
+  looks fine. `Srcfiles` and `Depends` derive from `Filepath` (`Makefile:92-96`), so
+  everything downstream is stale too. Relevant only when you relocate the source; a
+  fresh `OBJ/` avoids it.
 - **Adding a `use` statement to an existing file silently breaks the parallel build.**
   The Makefile gets its build order from `include Depends`, which is generated under the
   rule `Depends: Srcfiles Filepath` — so it is regenerated only when the *list* of source
@@ -324,6 +424,67 @@ models have zero or negative group velocity. WRF's effective resolution is ~7*dx
   makes `ug0` *be* the shear profile, so the `nudging()` path now targets the shear too.
   After the merge this trap is gone.
 
+- **`dolargescale` does three things, and our two experiment families disagree about
+  it.** Every Walker `prm` here sets `.true.` (46 of them, including `puresam60`); every
+  shear `prm` sets `.false.` (15). Both work, but the switch is not inert:
+  1. `setforcing.f90:75` opens `<case>/lsf`, so with `.true.` the file must exist.
+     Ours is all zeros in the five tendency columns, so there is no actual large-scale
+     advective forcing either way.
+  2. `forcing.f90:200` **overwrites `ug0`/`vg0`** with the `lsf` file's `uls_hor`/
+     `vls_hor` columns, clobbering the values interpolated from `snd` at
+     `forcing.f90:107`. With our zero `lsf` that pins `ug0 = 0` every step. In Walker
+     that happens to be the intended target, but it comes from the file, not from a
+     decision. In a shear run it would silently erase the target profile — which is why
+     the shear prms turn it off. **After your `15b4990` this no longer bites**: your
+     `set_ug0_from_external_profile` is called at `forcing.f90:344`, after both
+     assignments, so it wins regardless of `dolargescale`.
+  3. `upperbound.f90:17` is the one real physical difference. With `.true.` the top two
+     levels are relaxed to `tg0`/`qg0` on a 1 h timescale; with `.false.` SAM instead
+     extrapolates the top level from the level below it, preserving the vertical
+     gradient. This is a genuine difference in upper-boundary treatment between our
+     Walker runs and our shear runs — and between our `puresam60` and cgmacdonald's
+     Walker, which uses `.false.`. It did not show up in the comparison we ran
+     (`U200`/`U850` agreed at r = 0.99), but it is there.
+
+  If you standardise on one value, change it deliberately and on its own — it is not a
+  cosmetic flag.
+
+## Known, not yet done
+
+Logged here rather than left in someone's head. None of these affects any result.
+
+**Skip the CRM time-stepping when `hm_only = .true.`** Every `hm_only` run currently
+costs a full MMF run, because the CRMs march even though nothing they compute is read:
+the host takes its own previous `u`/`t`/`q`, and its buoyancy goes through the
+condensate-free `buoyancy_only_in_hm`. The 11-run smoother sweep was ~7.7 h of 160-core
+time spent on subdomains nobody looked at. Caveats before implementing: the node count
+will not drop (`nsubdomains_x` is compile time, so the ranks are still allocated, just
+idle); existing `ho_*` / `sm_*` results are only comparable to a skipping build if the
+skip is provably a no-op, which is worth a bit-for-bit short A/B rather than an
+assumption; and the condensate maps at the top of `host_model_evolve`
+(`face2center_U_inverse_filtered` on `qn0_in`, `qp0_in`, ...) are computed regardless of
+`hm_only` even though that path never reads them — dead work, cheap to gate.
+
+**Initialise `ug0_hm` and retire the spin-up branch.** For the first `nstephostmodel`
+steps of *every* run, `could_hm_nudging` is `.false.` and `main.f90` falls through to
+plain `nudging()` instead of `nudging_hm()`. The reason appears to be that `ug0_hm` is
+declared in `vars.f90` as a bare `real ug0_hm(nzm)` with **no initialiser**, so before
+the first `hm_couple_step` it holds whatever was in memory, and `nudging_hm` would inject
+`ug0_hm(k)/dt_hm` of garbage. Setting `ug0_hm = 0.` at init (as `ug0_resid` already is)
+should make `nudging_hm` an exact no-op for `u` over that first interval and let the
+branch go. To verify rather than assume: that `v`'s nudging toward `vg0` behaves
+identically on step 1 either way, and that nothing else keys off `could_hm_nudging`.
+
+**Reorganise the mean-wind forcing.** Four terms act on two different fields under three
+gates plus that spin-up branch, and one of them is redundant: with
+`apply_hm_u_external_nudging` on, `damping_hm`'s drag has the same target as the nudging
+and is ~480x weaker, contributing 0.2%. In Walker it is load-bearing — the host has no
+surface stress, so it is the only thing bounding `<u>`. A tidier design would be one term
+per configuration, with the drag skipped when the nudging is on. That is a deliberate
+0.2% behaviour change in shear runs, so it should be done on purpose and on its own, not
+folded into something else. In the meantime `setparm` prints the full audit at startup
+(see below), which makes the configuration readable from the log.
+
 ## What we deliberately did not change
 
 - **How the shear profile reaches the model — you have already solved this better than we
@@ -340,6 +501,30 @@ models have zero or negative group velocity. WRF's effective resolution is ~7*dx
   `setdata`. That avoids hand-editing `snd` per experiment, removes the spin-up, and fixes
   the `hm_only` case — none of which the `snd` route would have done as cleanly. Adopt
   yours; we have nothing to add here.
+
+  Two small things we noticed while merging, neither of which bites today:
+
+  1. **`set_initial_U_from_external_profile` is called before the `ug` subtraction, not
+     after.** `setdata.f90:243` makes the call, but `u0(k) = u0(k) - ug` is at
+     `setdata.f90:261`, 18 lines *below* it — contrary to the comment you put at
+     `setdata.f90:242` ("上面的 u0 = u0 - ug 已经做完") and the one at
+     `module_hostmodel.f90:124`. Because that loop subtracts `ug` from `u0` and `ug0` but
+     not from `u_domain_avg`, a non-zero `ug` would leave the three inconsistent:
+     `u0` and `ug0` at `profile - ug`, `u_domain_avg` at `profile`. Dormant right now —
+     `ug` defaults to 0 (`params.f90:43`) and no `prm` here sets it — but a translating
+     frame is a natural thing to want in a shear run, which is exactly this feature's
+     use case. The fix is to move the call below the loop that ends at
+     `setdata.f90:268`, still before `u(i,j,k) = u0(k)` at `:278`.
+
+  2. **`add_initial_bubble` on a restart taken before host-model init.** The host-side
+     call sits inside `if (.not. wsub_inited)` in `host_model_init`, and `wsub_inited`
+     is restored from the restart file (`restart.f90:400`), so a normal restart correctly
+     does not re-add the bubble. The one gap: restarting from a checkpoint written
+     *before* the host model initialised would run `add_initial_bubble_to_hm` against a
+     `t0` that never went through `set_initial_bubble_in_crm` (that only runs in
+     `setdata`, which restarts skip), so the `- dt_local(k)` would subtract something
+     that was never added. Only reachable with `hm_spinup_step > 0`; it is 0 in
+     `vars.f90:264` and in every `prm` here.
 - **`diffuse_TQ` remains commented out** at the `host_model_evolve` call site.
 - **No CFL check in the host.** `dx_hm = 32 km` with `hm_subcycle = 5` blew up at day 29 of
   a 60-day Walker run; `hm_subcycle = 10` fixed it. The failure is silent until it happens.

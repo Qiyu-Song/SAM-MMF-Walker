@@ -335,19 +335,60 @@ end if
             write(*,*) '  subdomain width  = ', nx*dx/1000., ' km'
             write(*,*) '  CRM extent       = ', nx_gl*dx/1000., ' km'
             write(*,*) '  host Nyquist     = ', 2.*dx_hm/1000., ' km'
-            write(*,*) '  ----- domain-mean drag (damping_hm) -----'
+            ! ----- audit of every term acting on the mean wind -----------------
+            ! Four separate terms can act, on two different fields, under three
+            ! gates plus a spin-up branch.  Print them all so the configuration is
+            ! readable from the log instead of having to be reconstructed from the
+            ! prm.  This is what would have caught the fighting-targets bug that
+            ! fef8700 fixed.  See CHANGES_since_tend-nudging2.md.
+            write(*,*) '  ----- mean-wind forcing: every active term -----'
+            if(apply_hm_u_external_nudging) then
+              write(*,*) '   HOST  external-profile nudging -> u_external_profile,  tau =', &
+                         tauls_large_scale, ' s   [ON]'
+              write(*,*) '         profile from: ', trim(large_u_profile_filename)
+            else
+              write(*,*) '   HOST  external-profile nudging                          [off]'
+            end if
             if(do_damp_hm_mean) then
-              write(*,*) '  do_damp_hm_mean  = T, tau = ', tau_damp_mean, ' s =', tau_damp_mean/86400., ' days'
               if(apply_hm_u_external_nudging) then
-                write(*,*) '  relaxes <u> toward the prescribed external profile'
-                write(*,*) '  (same target as the nudging, so they do not fight)'
+                write(*,*) '   HOST  domain-mean drag         -> u_external_profile,  tau =', &
+                           tau_damp_mean, ' s   [ON]'
+                write(*,*) '         *** same target as the nudging above and', &
+                           tau_damp_mean/tauls_large_scale, 'x weaker:'
+                write(*,*) '         *** REDUNDANT, contributes', &
+                           100./(1.+tau_damp_mean/tauls_large_scale), '% of the relaxation'
               else
-                write(*,*) '  relaxes <u> toward zero (no external profile given)'
+                write(*,*) '   HOST  domain-mean drag         -> zero,                tau =', &
+                           tau_damp_mean, ' s   [ON]'
+                write(*,*) '         this is the ONLY term bounding <u>; the host has no surface stress'
               end if
             else
-              write(*,*) '  do_damp_hm_mean  = F  <- domain-mean wind is unbounded'
-              write(*,*) '  unless apply_hm_u_external_nudging holds it'
+              write(*,*) '   HOST  domain-mean drag                                  [off]'
+              if(.not.apply_hm_u_external_nudging) &
+                write(*,*) '         *** WARNING: nothing bounds the host domain-mean wind'
             end if
+            if(dompimmf .and. .not.hm_only) then
+              if(donudging_uv) then
+                write(*,*) '   CRM   coupling increment ug0_hm via nudging_hm          [ON]'
+              else
+                write(*,*) '   CRM   coupling increment ug0_hm                         [off]'
+                write(*,*) '         *** WARNING: donudging_uv = F gates the block in', &
+                           ' nudging_hm, so the host increment never reaches the CRMs'
+              end if
+            end if
+            if(hm_only) then
+              write(*,*) '   CRM   nudging() -> ug0,                                tau =', &
+                         tauls, ' s   [ON, hm_only takes this branch]'
+              if(apply_hm_u_external_nudging) then
+                write(*,*) '         ug0 is overwritten from the external profile each step'
+                write(*,*) '         (set_ug0_from_external_profile, called from forcing)'
+              else
+                write(*,*) '         ug0 comes from snd -- whose u column is ZERO in our cases'
+              end if
+            end if
+            write(*,*) '   CRM   nudging() -> ug0,  ALSO for the first', nstephostmodel, &
+                       ' steps of every run'
+            write(*,*) '         (could_hm_nudging is .false. until the first hm_couple_step)'
             write(*,*) '  ----- horizontal smoother (see vars.f90) -----'
             select case (hm_smoother)
             case (0)
