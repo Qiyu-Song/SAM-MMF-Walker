@@ -555,8 +555,34 @@ folded into something else. In the meantime `setparm` prints the full audit at s
   3. It was never wired into the `hm_smoother` dispatcher, and it read
      `diffuse_intensity`, which the recommended configuration (`hm_smoother = 2`) sets
      to 0. Uncommenting it would have been a no-op anyway.
-- **No CFL check in the host.** `dx_hm = 32 km` with `hm_subcycle = 5` blew up at day 29 of
-  a 60-day Walker run; `hm_subcycle = 10` fixed it. The failure is silent until it happens.
+- **The host now has a CFL guard — `hm_cfl_max`, default 0.7.** `kurant_hm` computes
+  `sqrt(cflh^2 + cflz^2)` in the convention of SAM's own `kurant.f90`, but with
+  `dt_hm_subcycle` and `dx_hm`, once per subcycle. Above the limit it prints the split,
+  the level where the vertical term peaks, and the `hm_subcycle` that would be needed,
+  and the run aborts. Set `hm_cfl_max <= 0.` to keep the diagnostic and never abort.
+
+  The host has no adaptive subcycling — `hm_subcycle` is fixed, unlike SAM's `ncycle`,
+  which `kurant.f90` raises on the fly — so before this the failure was silent until the
+  fields blew up. Two things worth knowing:
+
+  - **The constraint is vertical, not horizontal.** Earlier notes here blamed `dx_hm`,
+    but `|u|` is tiny against `dx_hm ~ 1e4 m`. Measured over `dxhm32`'s whole life: the
+    horizontal term never exceeded 0.033, even in the record where it died. `hm_subcycle`
+    is the lever because it shortens `dt_hm_subcycle`, which is what the vertical term
+    scales with.
+  - **It detects, it does not predict.** `dxhm32` sat in 0.08-0.40 for 28 days, then went
+    0.255 (day 28.5) -> 0.723 (day 29.0) and the run ended at 29.15. A healthy
+    `dx_hm = 64 km` run (`wk_h4a`, day 30-60) peaks at 0.352. So 0.7 is well clear of the
+    healthy range and fires when the run is genuinely failing — but it will not warn you
+    a week ahead. The sub-limit warning line (printed on each new record above half the
+    limit) is there to show the trend.
+
+  Implementation note if you touch it: `kurant_hm` runs inside `host_model_evolve`, which
+  `hm_coupling.f90:176` calls on **masterproc only**. It therefore must not call
+  `task_abort` itself — `task_abort` -> `task_stop` -> `MPI_FINALIZE` is collective, so
+  aborting from rank 0 alone leaves the others waiting and holds the allocation until the
+  walltime. It sets `hm_cfl_abort`; `hm_couple_step` broadcasts that with
+  `task_bcast_integer` and every rank aborts together.
 - **`nudging_hm` applies `ug0_hm`, not `ug0`.** In coupled MMF mode `donudging_uv` gates
   the block but what flows through is the host increment, not the sounding. A comment in
   one of our `prm` files claims `snd` is "the only path by which shear reaches the CRMs" —

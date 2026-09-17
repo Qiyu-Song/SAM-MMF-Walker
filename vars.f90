@@ -327,6 +327,33 @@ real smag_nu_hm(nsx,nzm)            ! diagnosed eddy viscosity, cell centres [m2
 
 integer :: hm_subcycle = 1
 
+! ---------------------------------------------------------------------------
+! Host advective CFL guard.
+!
+! The host has no adaptive subcycling -- hm_subcycle is a fixed namelist value,
+! unlike SAM's own ncycle, which kurant.f90 raises on the fly.  So an unstable
+! configuration is silent until the fields blow up.
+!
+! The constraint is almost entirely VERTICAL: |u| is small against
+! dx_hm ~ 1e4 m, so the horizontal term stays around 0.01 even during a
+! blow-up.  hm_subcycle is what relieves it, by shortening dt_hm_subcycle.
+!
+! Measured on the existing runs (SAM's kurant convention, sqrt(cflh^2+cflz^2)):
+!   wk_h4a, dx_hm = 64 km, hm_subcycle = 5, day 30-60 : max 0.352 (cflh 0.005)
+!   dxhm32, dx_hm = 32 km, hm_subcycle = 5            : 0.08-0.40 for 28 days,
+!                                                       then 0.723 in the last
+!                                                       record before it died
+! So 0.7 -- SAM's own advective limit at kurant.f90:54 -- sits well clear of
+! the healthy range and fires when the run is actually failing.  Note this is
+! detection, not prediction: the jump was 0.255 -> 0.723 in half a day.
+!
+! Set hm_cfl_max <= 0. to keep the diagnostic but never abort.
+! ---------------------------------------------------------------------------
+real :: hm_cfl_max     = 0.7        ! abort above this; <= 0. disables the abort
+real :: cfl_hm_run_max = 0.         ! running max over the run  [diagnostic]
+real :: cfl_hm_reported = 0.        ! highest value already printed, to throttle
+integer :: hm_cfl_abort = 0         ! set on masterproc, made collective in hm_couple_step
+
 real prec_xy_crm(nx,ny) ! mean precip. rate, just copy prec_xy codes, but doesn't depend on save2D
 real prec_xy_save(nx,ny)
 real shf_xy_crm(nx,ny) ! 

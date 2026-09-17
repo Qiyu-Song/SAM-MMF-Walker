@@ -576,6 +576,8 @@ subroutine host_model_evolve( &
 
 
     ! 2) 动量平流（2D，二阶中心）
+    call kurant_hm(u_hm_map, w_hm_map, icyc)
+
     call advect_mom_hm(u_hm_map,  w_hm_map, &
                       dudt_hm, dwdt_hm)
 
@@ -814,6 +816,67 @@ end subroutine damping_hm
 
 
 !================== 动量平流：2D 二阶中心 ==================
+subroutine kurant_hm(u_hm_map, w_hm_map, icyc)
+! Advective CFL for the host, in the convention of SAM's own kurant.f90 but
+! with dt_hm_subcycle and dx_hm.  See the block in vars.f90 for the measured
+! numbers behind the default limit.
+!
+! IMPORTANT: this runs on masterproc only, because host_model_evolve is called
+! only there (hm_coupling.f90:176).  It must therefore NOT call task_abort
+! itself -- task_abort -> task_stop -> MPI_FINALIZE is collective, so aborting
+! from one rank leaves the others waiting and the allocation is held until the
+! walltime.  It sets hm_cfl_abort instead; hm_couple_step broadcasts that and
+! every rank aborts together.
+    use vars
+    implicit none
+    real, intent(in) :: u_hm_map(nsx,nzm), w_hm_map(nsx,nz)
+    integer, intent(in) :: icyc
+
+    integer :: i, k, kzmax, need
+    real :: cflh, cflz, cfl, idx, idz, c
+
+    cflh = 0.
+    cflz = 0.
+    kzmax = 1
+    idx = dt_hm_subcycle / dx_hm
+    do k = 1, nzm
+      idz = dt_hm_subcycle / (dz*adzw(k))
+      do i = 1, nsx
+        cflh = max(cflh, abs(u_hm_map(i,k))*idx)
+        c = abs(w_hm_map(i,k))*idz
+        if (c .gt. cflz) then
+          cflz = c
+          kzmax = k
+        end if
+      end do
+    end do
+    cfl = sqrt(cflh*cflh + cflz*cflz)
+    cfl_hm_run_max = max(cfl_hm_run_max, cfl)
+
+    if (hm_cfl_max .gt. 0. .and. cfl .gt. hm_cfl_max) then
+      need = int(cfl*real(hm_subcycle)/hm_cfl_max) + 1
+      print *, ''
+      print *, ' *** HOST ADVECTIVE CFL EXCEEDED -- aborting'
+      print *, '     hm_step  =', hm_step, '  subcycle =', icyc, ' of', hm_subcycle
+      print *, '     cfl      =', cfl, '  limit hm_cfl_max =', hm_cfl_max
+      print *, '       horizontal =', cflh, ' (|u| against dx_hm)'
+      print *, '       vertical   =', cflz, ' at level k =', kzmax, ' z =', z(kzmax), ' m'
+      print *, '     dt_hm_subcycle =', dt_hm_subcycle, ' s   dx_hm =', dx_hm, ' m'
+      print *, '     raise hm_subcycle from', hm_subcycle, ' to at least', need
+      print *, '     (the vertical term is usually the binding one; hm_subcycle'
+      print *, '      shortens dt_hm_subcycle and relieves both)'
+      print *, ''
+      hm_cfl_abort = 1
+    else if (cfl .gt. 0.5*max(hm_cfl_max,1.e-30) .and. cfl .gt. 1.2*cfl_hm_reported) then
+      ! one line per new record above half the limit, so the log shows a trend
+      ! without a print every subcycle
+      print *, ' host CFL rising:', cfl, ' (h', cflh, ' v', cflz, ') at hm_step', hm_step
+      cfl_hm_reported = cfl
+    end if
+
+end subroutine kurant_hm
+
+
 subroutine advect_mom_hm(u_hm_map, w_hm_map, dudt_hm, dwdt_hm)
   implicit none
   ! 输入 

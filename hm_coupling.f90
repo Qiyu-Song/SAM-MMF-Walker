@@ -193,6 +193,17 @@ subroutine hm_couple_step()
 
     end if  ! masterproc
 
+    ! kurant_hm runs inside host_model_evolve, which is masterproc-only, so it
+    ! can only set a flag.  Make the abort collective here, where every rank
+    ! arrives: task_abort -> task_stop -> MPI_FINALIZE is collective, and
+    ! aborting from rank 0 alone would leave the others waiting and hold the
+    ! allocation until the walltime.
+    if (dompi) call task_bcast_integer(0, hm_cfl_abort, 1)
+    if (hm_cfl_abort .ne. 0) then
+        if (masterproc) print *, ' aborting on host CFL (see the message above)'
+        call task_abort()
+    end if
+
     ! distribute ug0_hm
     if (masterproc) then
         call task_bscatter_float_map(0, u_out_map, nzm, nsx, ug0_hm(1))

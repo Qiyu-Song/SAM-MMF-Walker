@@ -71,6 +71,7 @@ NAMELIST /KUANG_PARAMS/ dompiensemble, &
                 do_remove_nyquist_u, do_remove_coupling_residual, &
                 do_fix_u_halo, &
                 do_hm_bubble, hm_bubble_step, hm_bubble_z_bot, hm_bubble_z_top, hm_bubble_nsubdomain_half, hm_bubble_dtemp, &
+                hm_cfl_max, &
                 add_initial_bubble, init_bubble_z_top, init_bubble_nsubdomain_half, init_bubble_dtemp
 
 
@@ -335,6 +336,11 @@ end if
             write(*,*) '  subdomain width  = ', nx*dx/1000., ' km'
             write(*,*) '  CRM extent       = ', nx_gl*dx/1000., ' km'
             write(*,*) '  host Nyquist     = ', 2.*dx_hm/1000., ' km'
+            if(hm_cfl_max.gt.0.) then
+              write(*,*) '  host CFL guard   = ', hm_cfl_max, ' (abort above; vertical term usually binds)'
+            else
+              write(*,*) '  host CFL guard   = OFF  <- hm_cfl_max <= 0., diagnostic only'
+            end if
             ! ----- audit of every term acting on the mean wind -----------------
             ! Four separate terms can act, on two different fields, under three
             ! gates plus a spin-up branch.  Print them all so the configuration is
