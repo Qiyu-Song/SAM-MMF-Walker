@@ -318,6 +318,9 @@ startup, and warns if a coefficient exceeds the AB3 real-axis limit (0.545).
 ## Recommended settings, and the evidence
 
 ```
+&PARAMETERS
+  dolargescale                = .false.
+
 &KUANG_PARAMS
   suppress_k_start            = -1        ! Nyquist only
   do_remove_coupling_residual = .true.
@@ -411,6 +414,10 @@ models have zero or negative group velocity. WRF's effective resolution is ~7*dx
   kind — and a dependent file is not recompiled because the edge is missing, you link two
   inconsistent copies of the same module, and it compiles, links and runs. Delete
   `Depends` whenever you add or change a `use`.
+- **How big a difference counts as real.** Two 1-day Walker runs from the same day-30
+  restart, differing only at the model top, decorrelate to rms 0.20 K at the surface
+  with a mean of 0.005 K (ratio 0.03) — zero-mean, grown from zero. Anything at or
+  below that in a 1-day comparison is chaos, not signal.
 - **`nstop` must be at least `nstat`.** `printout.f90:44` has
   `if(nstop-nstep.lt.nstat) call task_abort()`. Setting a short `nstop` for a quick test
   without lowering `nstat` aborts during startup — and the job then **hangs holding the
@@ -424,69 +431,18 @@ models have zero or negative group velocity. WRF's effective resolution is ~7*dx
   makes `ug0` *be* the shear profile, so the `nudging()` path now targets the shear too.
   After the merge this trap is gone.
 
-- **`dolargescale` does three things, and our two experiment families disagree about
-  it.** Every Walker `prm` here sets `.true.` (46 of them, including `puresam60`); every
-  shear `prm` sets `.false.` (15). Both work, but the switch is not inert:
-  1. `setforcing.f90:75` opens `<case>/lsf`, so with `.true.` the file must exist.
-     Ours is all zeros in the five tendency columns, so there is no actual large-scale
-     advective forcing either way.
-  2. `forcing.f90:200` **overwrites `ug0`/`vg0`** with the `lsf` file's `uls_hor`/
-     `vls_hor` columns, clobbering the values interpolated from `snd` at
-     `forcing.f90:107`. With our zero `lsf` that pins `ug0 = 0` every step. In Walker
-     that happens to be the intended target, but it comes from the file, not from a
-     decision. In a shear run it would silently erase the target profile — which is why
-     the shear prms turn it off. **After your `15b4990` this no longer bites**: your
-     `set_ug0_from_external_profile` is called at `forcing.f90:344`, after both
-     assignments, so it wins regardless of `dolargescale`.
-  3. `upperbound.f90:17` is the one real physical difference. With `.true.` the top two
-     levels are relaxed to `tg0`/`qg0` on a 1 h timescale; with `.false.` SAM instead
-     extrapolates the top level from the level below it, preserving the vertical
-     gradient. This is a genuine difference in upper-boundary treatment between our
-     Walker runs and our shear runs — and between our `puresam60` and cgmacdonald's
-     Walker, which uses `.false.`. It did not show up in the comparison we ran
-     (`U200`/`U850` agreed at r = 0.99), but it is there.
-
-  If you standardise on one value, change it deliberately and on its own — it is not a
-  cosmetic flag.
-
-## Known, not yet done
-
-Logged here rather than left in someone's head. None of these affects any result.
-
-**Skip the CRM time-stepping when `hm_only = .true.`** Every `hm_only` run currently
-costs a full MMF run, because the CRMs march even though nothing they compute is read:
-the host takes its own previous `u`/`t`/`q`, and its buoyancy goes through the
-condensate-free `buoyancy_only_in_hm`. The 11-run smoother sweep was ~7.7 h of 160-core
-time spent on subdomains nobody looked at. Caveats before implementing: the node count
-will not drop (`nsubdomains_x` is compile time, so the ranks are still allocated, just
-idle); existing `ho_*` / `sm_*` results are only comparable to a skipping build if the
-skip is provably a no-op, which is worth a bit-for-bit short A/B rather than an
-assumption; and the condensate maps at the top of `host_model_evolve`
-(`face2center_U_inverse_filtered` on `qn0_in`, `qp0_in`, ...) are computed regardless of
-`hm_only` even though that path never reads them — dead work, cheap to gate.
-
-**Initialise `ug0_hm` and retire the spin-up branch.** For the first `nstephostmodel`
-steps of *every* run, `could_hm_nudging` is `.false.` and `main.f90` falls through to
-plain `nudging()` instead of `nudging_hm()`. The reason appears to be that `ug0_hm` is
-declared in `vars.f90` as a bare `real ug0_hm(nzm)` with **no initialiser**, so before
-the first `hm_couple_step` it holds whatever was in memory, and `nudging_hm` would inject
-`ug0_hm(k)/dt_hm` of garbage. Setting `ug0_hm = 0.` at init (as `ug0_resid` already is)
-should make `nudging_hm` an exact no-op for `u` over that first interval and let the
-branch go. To verify rather than assume: that `v`'s nudging toward `vg0` behaves
-identically on step 1 either way, and that nothing else keys off `could_hm_nudging`.
-
-**Reorganise the mean-wind forcing.** Four terms act on two different fields under three
-gates plus that spin-up branch, and one of them is redundant: with
-`apply_hm_u_external_nudging` on, `damping_hm`'s drag has the same target as the nudging
-and is ~480x weaker, contributing 0.2%. In Walker it is load-bearing — the host has no
-surface stress, so it is the only thing bounding `<u>`. A tidier design would be one term
-per configuration, with the drag skipped when the nudging is on. That is a deliberate
-0.2% behaviour change in shear runs, so it should be done on purpose and on its own, not
-folded into something else. In the meantime `setparm` prints the full audit at startup
-(see below), which makes the configuration readable from the log.
-
-## What we deliberately did not change
-
+- **`dolargescale = .false.` is the standard from now on.** Historically our Walker
+  prms set `.true.` and the shear prms `.false.`; cgmacdonald's pure-SAM runs are
+  `.false.` throughout. For our configuration the switch does nothing except at the
+  model top: the `lsf` tendencies are zero, and the `ug0` overwrite at
+  `forcing.f90:200` is a no-op because the `snd` u column is zero (and after
+  `15b4990`, `set_ug0_from_external_profile` at `forcing.f90:344` wins anyway). What
+  is left is `upperbound.f90:17` — whether the top one or two levels are relaxed to
+  `tg0`/`qg0` on 1 h or left to extrapolate. **Do not flip it mid-run**: an A/B from a
+  day-30 restart (`mg_dls` vs `mg_wk`) put the top level 15 K off within 3 h and it was
+  still drifting at 0.12 K/h after 24 h, nowhere near settled. Change it at
+  initialisation. Walker runs made before this are `.true.` and are not directly
+  comparable; that is accepted.
 - **How the shear profile reaches the model — you have already solved this better than we
   proposed.** On `fix-coupling-residual` the profile is read from `large_u_profile_filename`
   and applied only as a host-side nudging at `tauls_large_scale`; `snd`'s u column is zero,

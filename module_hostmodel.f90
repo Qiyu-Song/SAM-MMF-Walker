@@ -863,6 +863,12 @@ subroutine kurant_hm(u_hm_map, w_hm_map, icyc)
       print *, '       vertical   =', cflz, ' at level k =', kzmax, ' z =', z(kzmax), ' m'
       print *, '     dt_hm_subcycle =', dt_hm_subcycle, ' s   dx_hm =', dx_hm, ' m'
       print *, '     raise hm_subcycle from', hm_subcycle, ' to at least', need
+      print *, '     -- that is a LOWER BOUND from the CFL right now, not a'
+      print *, '        sufficient value.  The requirement keeps growing as the'
+      print *, '        flow develops: in kqiu LU15_L32_12st1subc the guard would'
+      print *, '        have fired at day 0.33 asking for 2, the run reached cfl'
+      print *, '        1.8 by day 0.61, and hm_subcycle = 4 was what actually'
+      print *, '        worked.  Budget a factor of ~2 above this number.'
       print *, '     (the vertical term is usually the binding one; hm_subcycle'
       print *, '      shortens dt_hm_subcycle and relieves both)'
       print *, ''
