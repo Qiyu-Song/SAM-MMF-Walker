@@ -237,6 +237,34 @@ do while(nstep.lt.nstop.and.nelapse.gt.0)
 !-----------------------------------------------------------
 !       Buoyancy term:
 	     
+!---------------------------------------------
+!  hm_only: skip the CRM entirely.
+!
+!  With hm_only the host is self-contained.  host_model_evolve takes u/t/q
+!  from its own *_hm_updated_map_save (module_hostmodel.f90:342), its buoyancy
+!  is the condensate-free buoyancy_only_in_hm, the residual and Nyquist paths
+!  are gated off, and the host's relaxation to the external wind profile
+!  (nudge_u_to_external_profile) reads u_external_profile directly, not ug0.
+!  Everything else the host uses -- bet, gamaz, rho, rhow, adz, adzw, epsv --
+!  is set once in setdata/setgrid/setparm and never touched in this loop.  So
+!  marching the CRM produces nothing the host reads; in a coupled run of the
+!  same size host_model is only ~1.4% of the runtime, the rest of which was
+!  being thrown away.
+!
+!  The loop bookkeeping around this block is deliberately left running:
+!  nstatsteps has to keep incrementing or hbuf_average divides by zero
+!  (hbuffer.f90, coef = 1./dble(n)), and icycle / dtn / dt3 / firststep and the
+!  Adams-Bashforth rotation are cheap.  zero() above clears the tendency
+!  arrays; with nothing adding to them and adams() skipped, the CRM fields stay
+!  exactly frozen.
+!
+!  What this DOES change, by design: every CRM diagnostic freezes.  U0_In,
+!  T0_In and Q0_In in the host output stop updating, PrecFlux goes to zero
+!  (prec_xy_crm is never accumulated), and the .stat file records a static
+!  CRM.  Nothing the host itself writes is affected -- that is what the
+!  bit-for-bit A/B checks.
+!---------------------------------------------
+     if (.not. hm_only) then
      call buoyancy()
 
 !------------------------------------------------------------
@@ -377,6 +405,7 @@ do while(nstep.lt.nstop.and.nelapse.gt.0)
 !    Compute diagnostic fields:
 
       call diagnose()
+     end if   ! .not. hm_only
 
 !----------------------------------------------------------
 !    Parameterized large-scale wave dynamics (Qiyu, 2024)
