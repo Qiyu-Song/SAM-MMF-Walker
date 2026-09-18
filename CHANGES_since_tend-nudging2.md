@@ -10,7 +10,7 @@ Repo: <https://github.com/Qiyu-Song/SAM-MMF-Walker>
 
 ## READ THIS FIRST — one change breaks existing `prm` files
 
-[`a85416b`](https://github.com/Qiyu-Song/SAM-MMF-Walker/commit/a85416b7075bed16d5cb29a9827e0a2c1e37119f)
+[`5b718df`](https://github.com/Qiyu-Song/SAM-MMF-Walker/commit/5b718dfafad3bac517e89aeb98e87964b36a182f)
 **removed** two namelist variables and **added** one:
 
 | removed from `KUANG_PARAMS` | added |
@@ -32,7 +32,7 @@ suppresses, in host-column index space (1 … nsx/2):
 At nsx = 160: `k1 = 0.95` → `76`; `k1 = 1.00` → `80`, or equivalently `-1`.
 `setparm` validates the range and aborts with a clear message if it is outside 1 … nsx/2.
 
-`a85416b` also moved `dx_hm` out of the namelist into `domain.f90` as `dx_hm_km`, next to
+`5b718df` also moved `dx_hm` out of the namelist into `domain.f90` as `dx_hm_km`, next to
 `nx_gl` and `nsubdomains_x`, so the three numbers that have to be consistent now sit
 together. Remove `dx_hm` from your `prm` and set `dx_hm_km` in `domain.f90` instead.
 
@@ -50,7 +50,7 @@ done
 
 ## `domain.f90` now carries `dx_hm_km` — set it, and check it every time
 
-[`a85416b`](https://github.com/Qiyu-Song/SAM-MMF-Walker/commit/a85416b7075bed16d5cb29a9827e0a2c1e37119f)
+[`5b718df`](https://github.com/Qiyu-Song/SAM-MMF-Walker/commit/5b718dfafad3bac517e89aeb98e87964b36a182f)
 moved the host grid spacing out of the namelist into `domain.f90`, so **three numbers
 that must be consistent with each other now live together**:
 
@@ -108,10 +108,10 @@ for whatever you are running.
 ## The five commits
 
 Four of the five are drop-in: at their default settings the model reproduces
-`tend-nudging2` exactly. Only `a85416b` requires action, and only `fef8700` changes any
+`tend-nudging2` exactly. Only `5b718df` requires action, and only `7ad87f6` changes any
 number (by 0.2%, in shear runs only).
 
-### 1. [`79450ac`](https://github.com/Qiyu-Song/SAM-MMF-Walker/commit/79450ac90f52a3b0632778626efa15c9482e8252) — remove the coupling residual orphaned in subdomain U
+### 1. [`a6c055f`](https://github.com/Qiyu-Song/SAM-MMF-Walker/commit/a6c055f13e54fff0d473d127c42d8203052977e3) — remove the coupling residual orphaned in subdomain U
 
 This is the fix for the **persistent stripes in the subdomain-mean U**. The mechanism is
 worth spelling out, because the fix only makes sense once you see where the stripes come
@@ -234,13 +234,13 @@ This removes what the CRM produced and the host cannot accept. It says nothing a
 what the **host itself** generates at 2*dx — a separate problem, handled by the smoother
 in section 5, and diagnosed in `diag/SMOOTHER_TEST_PLAN.md`.
 
-### 2. [`a85416b`](https://github.com/Qiyu-Song/SAM-MMF-Walker/commit/a85416b7075bed16d5cb29a9827e0a2c1e37119f) — coupling filter as a wavenumber; `dx_hm` to `domain.f90`
+### 2. [`5b718df`](https://github.com/Qiyu-Song/SAM-MMF-Walker/commit/5b718dfafad3bac517e89aeb98e87964b36a182f) — coupling filter as a wavenumber; `dx_hm` to `domain.f90`
 
 See the section above. `setparm` now also prints the grid geometry at startup — `dx_hm`,
 `nsx`, host domain width, subdomain width, CRM extent and the host Nyquist wavelength —
 which makes a mis-specified configuration visible in the log immediately.
 
-### 3. [`fef8700`](https://github.com/Qiyu-Song/SAM-MMF-Walker/commit/fef87005df5c2f857cda71ecec39272cbf70b034) — `tau_damp_mean` as a namelist parameter, in seconds
+### 3. [`7ad87f6`](https://github.com/Qiyu-Song/SAM-MMF-Walker/commit/7ad87f699191e29ea8e2c6bd277ff05c3586a293) — `tau_damp_mean` as a namelist parameter, in seconds
 
 `damping_hm` applied a weak drag relaxing the domain-mean wind toward **zero** with a
 hard-coded 20-day timescale. In a run with `apply_hm_u_external_nudging = .true.` that
@@ -260,7 +260,7 @@ equilibrium offset the old code produced,
 `1/(1 + tauls_large_scale/tau_damp_mean)` = **0.2%** at the default settings — i.e. the
 bug it fixes was real but immaterial. Do not expect your shear results to move.
 
-### 4. [`b7d829e`](https://github.com/Qiyu-Song/SAM-MMF-Walker/commit/b7d829e84b33cc6ff229c8deeddd70bcaf1d5d72) — `do_fix_u_halo`
+### 4. [`b2d4232`](https://github.com/Qiyu-Song/SAM-MMF-Walker/commit/b2d4232b0f0c9f7998ea1e7fb2b8fb809878747c) — `do_fix_u_halo`
 
 On coupling steps the subdomain U is modified in place by `modify_U_for_subdomain` /
 `remove_nyquist_U_for_subdomain` / `remove_residual_U_for_subdomain`, but the MPI halo
@@ -280,7 +280,7 @@ statistics. Left off by default so old runs stay reproducible.
 `boundaries()` takes the MPI path and deadlocks. See the comment on `do_fix_u_halo` in
 `vars.f90`.
 
-### 5. [`b37cf5d`](https://github.com/Qiyu-Song/SAM-MMF-Walker/commit/b37cf5de393f4a2fdd3b087d73a173398e331dcc) — `hm_smoother`: grad^4 and Smagorinsky
+### 5. [`77d245d`](https://github.com/Qiyu-Song/SAM-MMF-Walker/commit/77d245da9ed948722184497fa1fbcc9fbffd12b2) — `hm_smoother`: grad^4 and Smagorinsky
 
 The host's horizontal smoother was a grid-**index** Laplacian with no `dx^2`:
 
@@ -423,7 +423,7 @@ models have zero or negative group velocity. WRF's effective resolution is ~7*dx
   without lowering `nstat` aborts during startup — and the job then **hangs holding the
   whole allocation** until the walltime, while `squeue` still reports it RUNNING.
 - **`hm_only = .true.` could not do a wind-shear experiment — your `15b4990` fixes this.**
-  On this branch as of `b37cf5d`, the host develops the shear (the external-profile
+  On this branch as of `77d245d`, the host develops the shear (the external-profile
   nudging is applied inside the subcycle loop, after the `hm_only` branch) but `main.f90`
   takes the `nudging()` path instead of `nudging_hm()`, which relaxes the CRM mean wind
   toward `ug0` from `snd` — whose u column is zero — giving a sheared host over unsheared
