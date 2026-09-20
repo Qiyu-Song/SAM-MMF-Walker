@@ -443,51 +443,8 @@ subroutine host_model_evolve( &
 
     if (subdomain_center_at_hm_u_center) then
 
-      ! FIRST COUPLING: take no increment.  Host and CRM start from the same state.
-      !
-      ! t_sub_map_save is "the CRM state the host last saw", and lines further down
-      ! set it to t0_in after every coupling.  On the very first call it has never
-      ! been set from a gather -- host_model_init built it on the host side from
-      ! masterproc's t0, and add_initial_bubble_to_hm then added the bubble to it.
-      ! But t0_in from the first gather carries NO horizontal structure, because
-      ! nstep = 0: the CRM has not run a step, so diagnose() has not yet recomputed
-      ! the per-subdomain t0 that the coupling assumes.  Differencing the two then
-      ! subtracts the bubble straight back out of the host.
-      !
-      ! Measured in the pdiag run (dx_hm = 128, -5 K bubble) before this fix:
-      !   Tadj at the bubble columns = +4.686 K, i.e. exactly minus the bubble
-      !   tabs_map_hm anomaly        = +0.75 K instead of -5 K
-      !   dwdt after buoyancy        = 9e-16 m/s2, i.e. zero to roundoff
-      !   p_phys3 at the surface     = -33 Pa, flipping to +141 Pa one host step
-      !                                later once the CRM delivers the bubble
-      ! So the host integrated its first host step with no bubble at all.  The CRM
-      ! had it throughout; only the host was blind, and only for hm_subcycle
-      ! sub-steps.
-      !
-      ! The reference must NOT be re-anchored to this flat t0_in either.  The next
-      ! coupling differences against it, so the CRM's bubble arriving then would
-      ! look like convection the CRM had just produced and would land on top of
-      ! the host's own bubble: measured that way, -8.45 K and +308 Pa at host
-      ! step 2, the bubble counted twice.  t_sub_map_save as
-      ! add_initial_bubble_to_hm leaves it already IS the CRM's t = 0 state, which
-      ! is the correct reference.  So the fix is to take no increment on the first
-      ! call and leave both reference arrays alone (the assignment further down is
-      ! skipped to match).
-      !
-      ! u is deliberately not gated the same way.  Its reference starts from
-      ! u_external_profile and the first gathered u0_in is the same horizontally
-      ! uniform shear, so the first u increment is already ~0 and the bubble is
-      ! temperature-only.
-      !
-      ! hm_step is written to and read from the restart file, so this fires once
-      ! per cold start and never on a restart.
-      if (hm_step .eq. 0) then
-        t_hm_map = t_hm_map_save
-        q_hm_map = q_hm_map_save
-      else
-        t_hm_map = t_hm_map_save + t0_in - t_sub_map_save
-        q_hm_map = q_hm_map_save + q0_in - q_sub_map_save
-      end if
+      t_hm_map = t_hm_map_save + t0_in - t_sub_map_save
+      q_hm_map = q_hm_map_save + q0_in - q_sub_map_save
       call output_host_model_single_variable(t0_in - t_sub_map_save - t_hm_updated_map_save + t_hm_map_save, 'Tadj', 'Tadj' , 'K', 0)
       call output_host_model_single_variable(q0_in - q_sub_map_save - q_hm_updated_map_save + q_hm_map_save, 'Qadj', 'Qadj' , 'kg/kg', 0)
     
@@ -526,11 +483,8 @@ subroutine host_model_evolve( &
 
     end if
   
-    ! skipped on the first coupling -- see the hm_step == 0 branch above
-    if (hm_step .ne. 0) then
-      t_sub_map_save = t0_in
-      q_sub_map_save = q0_in
-    end if
+    t_sub_map_save = t0_in
+    q_sub_map_save = q0_in
 
     u_hm_map_save = u_hm_map
     t_hm_map_save = t_hm_map
@@ -2741,13 +2695,13 @@ subroutine add_initial_bubble_to_hm()
 !   t_hm_map_save / t_hm_updated_map_save -- host model 自己的温度场；hm_only 的
 !       时候 host model 只认 t_hm_updated_map_save（完全不看 CRM），所以它必须加上，
 !       否则 host model only 的实验里 bubble 根本进不去 host model。
-!   t_sub_map_save -- host model 记住的"上一次看到的 CRM 状态"。
-!       注意：这里原本的理由是"CRM 那边的初值已经带扰动了，不加就会重复计入"。
-!       那个理由不成立 —— 第一次耦合发生在 nstep = 0，CRM 还没走过一步，
-!       diagnose() 还没重算过分 subdomain 的 t0，所以 t0_in 是平的，根本没有
-!       bubble。加在这里反而让 (t0_in - t_sub_map_save) 把 bubble 减掉。
-!       现在第一次耦合改成锚定（见 host_model_evolve 里 hm_step == 0 的分支），
-!       所以这一行加不加都不影响结果；保留是为了让三个 save 数组保持一致。
+!   t_sub_map_save -- host model 记住的"上一次看到的 CRM 状态"。CRM 那边的初值
+!       已经带扰动了，如果这里不加，第一次耦合时 (t0_in - t_sub_map_save) 会把
+!       CRM 的 bubble 当成对流调整再送进 host model 一次，等于重复计入。
+!       （这个理由是对的，但它依赖 t0_in 在第一次耦合时确实带着 bubble。
+!        2026-09-20 之前并不成立：setdata 末尾的 diagnose() 在 nrestart=0 下
+!        以 dompi=.true. 运行，把 t0 做成了全域平均，bubble 被摊平成均匀的
+!        -5/16 K，于是这一行反而让 bubble 被减掉。根因已在 setdata.f90 修掉。）
     use grid
     use vars
     implicit none

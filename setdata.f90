@@ -353,7 +353,25 @@ call task_barrier()
 call boundaries(1)
 call boundaries(4)
 
+! Kuang Ensemble / MMF run: turn off mpi for diagnose, as the nrestart = 1 and 2
+! branches in main.f90 already do.  The nrestart = 0 path never passed through
+! those guards, so this call ran with dompi = .true. and diagnose.f90:94-115
+! averaged t0/u0/q0/tabs0/qn0/qp0/p0 across ALL subdomains.  Under MMF each rank
+! is its own CRM domain, so that is wrong: every column ended up with the same
+! profile.  With an initial bubble it was destructive -- the bubble was smeared
+! into a uniform offset of init_bubble_dtemp * (2*half)/nsx = -5/16 = -0.3125 K
+! (the same number for L32 and L128, both 1/16 of the domain), so the first
+! gathered t0_in was horizontally flat while the host's own t_sub_map_save still
+! carried the bubble, and
+!     t_hm_map = t_hm_map_save + t0_in - t_sub_map_save
+! subtracted the bubble straight back out.  The host then integrated its whole
+! first host step with no bubble and zero buoyancy (measured: Tadj = +4.686 K at
+! the bubble columns, exactly minus the bubble; dwdt after buoyancy 9e-16 m/s2;
+! p_phys3 -33 Pa, flipping to +141 Pa one host step later).
+! Found by Kairui's analysis of prm.LU20_L128_C128x128_48st4subc.
+if(dompiensemble.or.dompimmf) dompi = .false.
 call diagnose()
+if(dompiensemble.or.dompimmf) dompi = .true.
 
 end
 
