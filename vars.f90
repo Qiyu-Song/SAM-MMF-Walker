@@ -350,6 +350,10 @@ integer :: hm_subcycle = 1
 ! Set hm_cfl_max <= 0. to keep the diagnostic but never abort.
 ! ---------------------------------------------------------------------------
 real :: hm_cfl_max     = 0.7        ! abort above this; <= 0. disables the abort
+logical :: do_hm_pressure_diag = .false.  ! write the host buoyancy/pressure split every
+                                   ! subcycle (dwdt_buoy, dwdt_prs, tabs_hm).  Diagnostic
+                                   ! only -- changes nothing in the integration.  Added to
+                                   ! chase the first-host-step jump in p_phys3.
 real :: cfl_hm_run_max = 0.         ! running max over the run  [diagnostic]
 real :: cfl_hm_reported = 0.        ! highest value already printed, to throttle
 integer :: hm_cfl_abort = 0         ! set on masterproc, made collective in hm_couple_step
