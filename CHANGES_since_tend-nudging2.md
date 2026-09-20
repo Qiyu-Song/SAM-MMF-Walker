@@ -543,3 +543,94 @@ models have zero or negative group velocity. WRF's effective resolution is ~7*dx
   the block but what flows through is the host increment, not the sounding. A comment in
   one of our `prm` files claims `snd` is "the only path by which shear reaches the CRMs" —
   that is wrong for coupled runs.
+
+---
+
+## 2026-09-20: the host lost the initial bubble for one whole host step
+
+**For Kairui: this is the bug your analysis of `prm.LU20_L128_C128x128_48st4subc`
+found, and your diagnosis was right. Fixed here in `a2a4c83`.**
+
+`setdata.f90` ends with its own `call diagnose()`. The `dompi = .false.` guards in
+`main.f90` sit only in the `nrestart = 1` and `nrestart = 2` branches — the
+`nrestart = 0` path is just `setgrid(); setdata()` — so on a cold start that call
+ran with `dompi = .true.` and `diagnose.f90:94-115` averaged
+`t0/u0/q0/tabs0/qn0/qp0/p0` across **all** subdomains. Under MMF each rank is its
+own CRM domain, so every column ended up with the same profile and an initial
+bubble was smeared into a uniform offset
+
+    init_bubble_dtemp * (2*init_bubble_nsubdomain_half)/nsx = -5/16 = -0.3125 K
+
+the same number for L32 (8/128) and L128 (2/32), both 1/16 of the domain. The
+first gathered `t0_in` was then horizontally flat while the host's
+`t_sub_map_save` still carried the bubble, so
+
+    t_hm_map = t_hm_map_save + t0_in - t_sub_map_save
+
+subtracted the bubble straight back out. Measured at the bubble columns,
+`dx_hm = 128`, `-5 K`: `Tadj` = +4.686 K (exactly minus the bubble),
+`tabs_map_hm` +0.75 K instead of -5 K, `dwdt` after buoyancy 9e-16 m/s2 (zero to
+roundoff), `p_phys3` -33 Pa at the surface flipping to +141 Pa one host step
+later.
+
+**This is physical, not a diagnostic artefact.** The host really integrated its
+first host step — `hm_subcycle` sub-steps — with no bubble and zero buoyancy. The
+CRM had the bubble throughout, so nothing was lost permanently; the host just
+received it one `dt_hm` late (480 / 240 / 120 s at `dx_hm` = 128 / 64 / 32).
+
+The fix is the same shape as the existing restart-branch guards:
+
+```fortran
+if(dompiensemble.or.dompimmf) dompi = .false.
+call diagnose()
+if(dompiensemble.or.dompimmf) dompi = .true.
+```
+
+**Do not fix this downstream.** `93adf9d` tried two downstream patches first and
+both are recorded here as traps:
+
+- Re-anchoring the reference (`t_sub_map_save = t0_in` on the first coupling)
+  fixes host step 1 and then **double-counts**: the CRM's bubble arrives at
+  coupling 2 looking like fresh convection and lands on top of the host's own.
+  Measured -8.45 K and +308 Pa. On a run with no initial bubble this wrong fix
+  looks perfectly fine, which is what makes it dangerous.
+- Skipping the first increment fixes the bubble but leaves the uniform -0.3125 K
+  cold bias in the host base profile (domain-mean `tabs` 297.4063 vs 297.7187),
+  repairs only `t` and `q` while `u0/tabs0/qn0/qp0/p0` stay globally averaged, and
+  still leaves a step at the host-step boundary (+135.0 -> +140.1).
+
+Fixing the cause gives `p_phys3` = +141.2 -> +140.5 -> +140.1 across the first
+boundary, continuous, with the domain mean correct and the original coupling
+formula unmodified.
+
+**Runs without an initial bubble are essentially unaffected**, because every
+subdomain starts from the same sounding so the first increment was already ~0.
+In the Walker runs `p_phys3` is roundoff-zero (2.4e-11 Pa) for exactly
+`hm_subcycle` records and then steps to 0.16 Pa — same structure, benign cause.
+
+### The host CFL guard now sums the two Courant numbers (`8f6ca90`)
+
+The guard copied SAM's `kurant` convention, `sqrt(cflh^2 + cflz^2)`. Wrong for
+this dycore: second-order centred advection plus AB3 gives an amplification
+exponent `i*((u dt/dx) sin(k dx) + (w dt/dz) sin(m dz))`, whose worst case over
+`(k, m)` is `cflh + cflz`, attained by the 2dx/2dz grid mode. AB3's
+imaginary-axis limit is 0.7236; quadrature understates the sum by up to sqrt(2).
+Converted to the sum convention, `bub32` peaked at 0.589 and completed, while two
+ensemble members reached 0.829 and were correctly aborted. `hm_cfl_max` stays at
+0.7. **`dx_hm = 32 km` with `hm_subcycle = 4` is marginal** — two realisations out
+of three crossed the limit — so raise `hm_subcycle` there when a run must finish.
+
+### `do_hm_pressure_diag` (default `.false.`)
+
+Writes `dwdt_buoy`, `dwdt_prs` and `tabs_hm` every subcycle. Diagnostic only. It
+is what localised the above; `dwdt_buoy` going to roundoff zero is the clean tell.
+
+### Two things still open
+
+- `output_host_model_single_variable` uses one global `notopened3D` for every
+  variable, so only the first file written in a run is truncated and all the rest
+  open `position='append'`. Re-running an existing caseid lengthens those files
+  instead of overwriting them. Not fixed.
+- The `Tadj` / `Qadj` diagnostics are written from the raw difference expression,
+  so they print the increment whether or not it is meaningful. Cosmetic, but they
+  mislead on the first record. Not fixed.
