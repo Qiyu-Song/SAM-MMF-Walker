@@ -901,7 +901,7 @@ subroutine kurant_hm(u_hm_map, w_hm_map, icyc)
         end if
       end do
     end do
-    cfl = sqrt(cflh*cflh + cflz*cflz)
+    cfl = cflh + cflz      ! sum, not quadrature -- see the note in vars.f90
     cfl_hm_run_max = max(cfl_hm_run_max, cfl)
 
     if (hm_cfl_max .gt. 0. .and. cfl .gt. hm_cfl_max) then
@@ -909,7 +909,8 @@ subroutine kurant_hm(u_hm_map, w_hm_map, icyc)
       print *, ''
       print *, ' *** HOST ADVECTIVE CFL EXCEEDED -- aborting'
       print *, '     hm_step  =', hm_step, '  subcycle =', icyc, ' of', hm_subcycle
-      print *, '     cfl      =', cfl, '  limit hm_cfl_max =', hm_cfl_max
+      print *, '     cfl      =', cfl, ' (= cflh + cflz)  limit hm_cfl_max =', hm_cfl_max
+      print *, '       AB3 imaginary-axis stability limit is 0.7236'
       print *, '       horizontal =', cflh, ' (|u| against dx_hm)'
       print *, '       vertical   =', cflz, ' at level k =', kzmax, ' z =', z(kzmax), ' m'
       print *, '     dt_hm_subcycle =', dt_hm_subcycle, ' s   dx_hm =', dx_hm, ' m'

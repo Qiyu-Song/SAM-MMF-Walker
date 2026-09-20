@@ -338,14 +338,35 @@ integer :: hm_subcycle = 1
 ! dx_hm ~ 1e4 m, so the horizontal term stays around 0.01 even during a
 ! blow-up.  hm_subcycle is what relieves it, by shortening dt_hm_subcycle.
 !
-! Measured on the existing runs (SAM's kurant convention, sqrt(cflh^2+cflz^2)):
-!   wk_h4a, dx_hm = 64 km, hm_subcycle = 5, day 30-60 : max 0.352 (cflh 0.005)
-!   dxhm32, dx_hm = 32 km, hm_subcycle = 5            : 0.08-0.40 for 28 days,
-!                                                       then 0.723 in the last
-!                                                       record before it died
-! So 0.7 -- SAM's own advective limit at kurant.f90:54 -- sits well clear of
-! the healthy range and fires when the run is actually failing.  Note this is
-! detection, not prediction: the jump was 0.255 -> 0.723 in half a day.
+! The combined number is cflh + cflz, NOT sqrt(cflh^2 + cflz^2).  SAM's kurant
+! uses the quadrature form and this guard copied it, which was wrong here.  The
+! host advects with second-order centred differences and steps with AB3, so the
+! amplification exponent is i*((u dt/dx) sin(k dx) + (w dt/dz) sin(m dz)) and the
+! worst case over (k, m) is the SUM of the two Courant numbers -- attained by the
+! 2dx/2dz grid mode, which is a mode the host really carries.  AB3's imaginary-
+! axis stability limit is 0.7236.  Quadrature understates the sum by up to a
+! factor sqrt(2): at cflh = cflz it reads 0.70 when the true value is 0.99, i.e.
+! well past the limit and still passing the guard.
+!
+! Measured on the existing runs, converted to the sum convention:
+!   wk_h4a,  dx_hm = 64 km,  hm_subcycle = 5, day 30-60 : ~0.36 (cflh 0.005)
+!   dxhm32,  dx_hm = 32 km,  hm_subcycle = 5            : 0.08-0.40 for 28 days,
+!                                                         then blew up
+!   bub32,   dx_hm = 32 km,  hm_subcycle = 4, 5 days    : peak 0.589
+!                                                         (h 0.087 + v 0.503)
+!                                                         -- completed
+!   bub32e1, same but icopy = 1                         : 0.829 (h 0.134 +
+!                                                         v 0.695) -- past the
+!                                                         AB3 limit, aborted
+!   bub32e2, same but icopy = 2                         : 0.828 -- aborted
+!   bub128 family, dx_hm = 128 km                       : never above ~0.4
+!
+! So 0.7 is NOT too strict: it sits 3% under the AB3 limit, it passes the run
+! that completed and it catches the two that were genuinely unstable.  What was
+! wrong was the formula, which reported those two as 0.707 and 0.712.  Note this
+! is detection, not prediction: dxhm32 jumped 0.255 -> past the limit in half a
+! day.  dx_hm = 32 km with hm_subcycle = 4 is marginal -- two realisations out of
+! three crossed the limit -- so raise hm_subcycle there if a run must finish.
 !
 ! Set hm_cfl_max <= 0. to keep the diagnostic but never abort.
 ! ---------------------------------------------------------------------------
