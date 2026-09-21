@@ -350,8 +350,10 @@ if(.not.SLM.and..not.dosfcforcing) call set_sst()
 
 call task_barrier()
 
+if(dompiensemble.or.dompimmf) dompi = .false.
 call boundaries(1)
 call boundaries(4)
+if(dompiensemble.or.dompimmf) dompi = .true.
 
 ! Kuang Ensemble / MMF run: turn off mpi for diagnose, as the nrestart = 1 and 2
 ! branches in main.f90 already do.  The nrestart = 0 path never passed through
