@@ -625,12 +625,30 @@ of three crossed the limit — so raise `hm_subcycle` there when a run must fini
 Writes `dwdt_buoy`, `dwdt_prs` and `tabs_hm` every subcycle. Diagnostic only. It
 is what localised the above; `dwdt_buoy` going to roundoff zero is the clean tell.
 
-### Two things still open
+### Still open
 
 - `output_host_model_single_variable` uses one global `notopened3D` for every
   variable, so only the first file written in a run is truncated and all the rest
   open `position='append'`. Re-running an existing caseid lengthens those files
   instead of overwriting them. Not fixed.
-- The `Tadj` / `Qadj` diagnostics are written from the raw difference expression,
-  so they print the increment whether or not it is meaningful. Cosmetic, but they
-  mislead on the first record. Not fixed.
+
+### `Tadj` was right all along
+
+An earlier version of this note listed `Tadj` / `Qadj` as misleading on the first
+record. That was wrong: the diagnostic was reporting the bug, not suffering from it.
+
+    Tadj = (t0_in - t_sub_map_save) - (t_hm_updated_map_save - t_hm_map_save)
+
+The first bracket is the CRM's total change over the coupling interval; the second
+is the host's own dynamical increment over its last step, which is exactly the
+`t_out_map` sent down as forcing (`module_hostmodel.f90:630`). Their difference is
+what the CRM did by itself -- convection, microphysics, radiation, surface fluxes --
+and it is exactly the increment added on top of the host's dynamics at the next
+coupling: new host t = (host t after its own dynamics) + `Tadj`. That identity holds
+on the `subdomain_center_at_hm_u_center = .true.` path; on the other path `t_out` is
+filtered first, and any send/receive mismatch would also land in `Tadj`.
+
+On the first coupling the host has not stepped, so the second bracket is zero and
+`Tadj = t0_in - t_sub_map_save`. Before `a2a4c83` that was +4.686 K at the bubble
+columns -- correctly saying the coupling had just subtracted the bubble, because the
+two references disagreed. After the fix it is +0.002 K.
