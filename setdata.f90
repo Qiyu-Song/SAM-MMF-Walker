@@ -353,7 +353,9 @@ call task_barrier()
 call boundaries(1)
 call boundaries(4)
 
+if(dompiensemble.or.dompimmf) dompi = .false.
 call diagnose()
+if(dompiensemble.or.dompimmf) dompi = .true.
 
 end
 
