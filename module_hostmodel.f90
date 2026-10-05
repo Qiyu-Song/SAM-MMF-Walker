@@ -4,7 +4,7 @@ module module_hostmodel
   implicit none
   private
   public :: host_model_init, host_model_finalize, host_model_evolve, nudging_hm, nudging_hm_nouv, modify_U_for_subdomain, &
-            remove_nyquist_U_for_subdomain, set_sin_x_sst, &
+            remove_nyquist_U_for_subdomain, remove_residual_U_for_subdomain, set_sin_x_sst, &
             set_initial_U_from_external_profile, set_ug0_from_external_profile, &
             set_initial_bubble_in_crm
  
@@ -35,6 +35,7 @@ subroutine host_model_init()
     dtdt_subdomain_diffuse = 0.
     dqdt_subdomain_diffuse = 0.
     ug0_nyquist = 0.
+    ug0_resid = 0.
     ! ----------------添加条带的初始场-----------------
     ! do k = 1, 3
     !   do i = 1, nsx
@@ -233,7 +234,7 @@ subroutine host_model_evolve( &
    u0_in, wsub_in, t0_in, q0_in,  &
   tabs0_in, qn0_in, qp0_in, &
   qni0_in, qnl0_in, qpi0_in, qpl0_in, prec_flx_map, &
-  u_out_map,  w_out_map, t_out_map, q_out_map, u_press_modify, u_nyquist_map)
+  u_out_map,  w_out_map, t_out_map, q_out_map, u_press_modify, u_nyquist_map, u_resid_map)
   use vars
   use params, only: fac_cond, fac_fus, fac_sub
   implicit none
@@ -261,6 +262,7 @@ subroutine host_model_evolve( &
   real, intent(out) :: q_out_map(nsx, nzm)
   real, intent(out) :: u_press_modify(nsx, nzm)
   real, intent(out) :: u_nyquist_map(nsx, nzm)
+  real, intent(out) :: u_resid_map(nsx, nzm)
 
 
   ! -------- 局部 --------
@@ -271,6 +273,8 @@ subroutine host_model_evolve( &
   real :: tmp(nsx, nzm), tmp1(nsx, nzm), tmp2(nsx, nzm), tmp3(nsx, nzm), tmp4(nsx, nzm), tmp_U(nsx, nzm), tmp_dudt(nsx, nzm)
   real :: u_hm_map(nsx, nzm),  w_hm_map(nsx, nz), t_hm_map(nsx, nzm), q_hm_map(nsx, nzm) ! , qni_hm_map(nsx, nzm) , qnl_hm_map(nsx, nzm), qpi_hm_map(nsx, nzm), qpl_hm_map(nsx, nzm)
   integer :: i, k
+  real :: u_adj_cs(nsx, nzm)   ! CRM-generated U adjustment, subdomain space
+  logical :: do_resid
   real :: tabs_map_hm(nsx, nzm)
   logical :: do_3step_adams_tmp
   integer :: icyc
@@ -326,8 +330,12 @@ subroutine host_model_evolve( &
   q_out_map = 0.
   u_press_modify = 0.
   u_nyquist_map = 0.
+  u_resid_map   = 0.
 
   
+  do_resid = do_remove_coupling_residual .and. (.not. hm_only) .and. (.not. nouvchatting) &
+             .and. subdomain_center_at_hm_u_center
+
   w_hm_map = wsub_in
   
   if (hm_only) then
@@ -355,11 +363,22 @@ subroutine host_model_evolve( &
         ! call center2face_U((u0_in-u_sub_map_save-tmp1), tmp2)
         
         call face2center_U_inverse_filtered((u_hm_updated_map_save-u_hm_map_save),tmp1)
-        call center2face_U_inverse_filtered((u0_in-u_sub_map_save-tmp1), tmp2)   ! 对流调整 + diffusion
+        u_adj_cs = u0_in - u_sub_map_save - tmp1     ! CRM-generated adjustment (subdomain space)
+        call center2face_U_inverse_filtered(u_adj_cs, tmp2)   ! 对流调整 + diffusion
+
+        ! ---- coupling residual: the part of u_adj_cs the host could not accept ----
+        ! tmp2 is what was handed to the host; mapping it back with the return
+        ! operator gives what the host effectively accepted. The difference is
+        ! orphaned in the subdomain. Spectral weight (1-h^2): identically zero
+        ! below the prefilter shoulder, rising to 1 at the 2-subdomain scale.
+        if (do_resid) then
+          call face2center_U_inverse_filtered(tmp2, tmp3)
+          u_resid_map = u_adj_cs - tmp3
+        end if
 
         call output_host_model_single_variable(u_hm_updated_map_save-u_hm_map_save, 'Uout_LS', 'LS_Uout' , 'm/s', 0)
         call output_host_model_single_variable(tmp1, 'Uout_CS', 'CS_Uout' , 'm/s', 0)
-        call output_host_model_single_variable(u0_in-u_sub_map_save-tmp1, 'Uadj_CS', 'CS_Uadj' , 'm/s', 0)
+        call output_host_model_single_variable(u_adj_cs, 'Uadj_CS', 'CS_Uadj' , 'm/s', 0)
         call output_host_model_single_variable(tmp2, 'Uadj_LS', 'LS_Uadj' , 'm/s', 0)
 
       else
@@ -644,6 +663,13 @@ subroutine host_model_evolve( &
     end if
     call output_host_model_single_variable(u_nyquist_map, 'U_nyq', 'U_nyquist_removed_from_subdomain' , 'm/s', 0)
   end if
+
+  if (do_resid) then
+    ! u_sub_map_save must record the state the subdomain will actually hold,
+    ! exactly as for u_press_modify and the Nyquist term above.
+    u_sub_map_save = u_sub_map_save - u_resid_map
+    call output_host_model_single_variable(u_resid_map, 'U_resid', 'U_coupling_residual_removed' , 'm/s', 0)
+  end if
   ! call cal_nyquist(u0_in, u_nyquist)
   ! call cal_nyquist(t0_in, t_nyquist)
   ! call cal_nyquist(q0_in, q_nyquist)
@@ -711,12 +737,13 @@ subroutine damping_hm(u_hm_map, w_hm_map, dudt_hm, dwdt_hm)
 
     real :: u0_entire_domain(nzm)
     real :: w0_entire_domain(nz)
+    real :: u_damp_ref(nzm)   ! reference state the domain-mean drag relaxes toward
 
     real tau_min	! minimum damping time-scale (at the top)
     real tau_max    ! maxim damping time-scale (base of damping layer)
     real damp_depth ! damping depth as a fraction of the domain height
     parameter(tau_min=1800., tau_max=3600., damp_depth=0.3)
-    real tau(nzm)   
+    real tau(nzm)
     integer i, k, n_damp
 
    
@@ -751,18 +778,37 @@ subroutine damping_hm(u_hm_map, w_hm_map, dudt_hm, dwdt_hm)
     end do 
 
 
-    ! ---------------------------------------damp to remove layer-mean "dapgRM"------------------------------------------------
-    do k = 1,nzm
-        do i = 1, nsx
-            dudt_hm(i,k) = dudt_hm(i,k) - u0_entire_domain(k) /(20.0*24.0*3600.0)
-        end do
-    end do
+    ! ------------------ weak drag on the domain mean (was "dapgRM") -------------------------------------------
+    ! Relaxes the domain mean toward the reference state, NOT toward zero: with
+    ! apply_hm_u_external_nudging the reference is the prescribed profile, so this
+    ! term and nudge_u_to_external_profile pull the same way instead of fighting.
+    ! With the nudging off the reference is zero and this is identical to the
+    ! original hard-coded form. See vars.f90 for why it exists at all.
+    if (do_damp_hm_mean) then
 
-    do k = 1,nz
-        do i = 1, nsx
-            dwdt_hm(i,k) = dwdt_hm(i,k) - w0_entire_domain(k)  /(20.0*24.0*3600.0)
+        if (apply_hm_u_external_nudging) then
+            u_damp_ref(1:nzm) = u_external_profile(1:nzm)
+        else
+            u_damp_ref(1:nzm) = 0.0
+        end if
+
+        do k = 1,nzm
+            do i = 1, nsx
+                dudt_hm(i,k) = dudt_hm(i,k) &
+                     - (u0_entire_domain(k) - u_damp_ref(k)) / tau_damp_mean
+            end do
         end do
-    end do
+
+        ! Anelastic continuity already forces the domain mean of w to zero
+        ! (measured max|<w>| = 2.4e-10 m/s against max|w| = 7.2e-2 m/s), so this
+        ! loop is a no-op safety net against numerical drift. Kept deliberately.
+        do k = 1,nz
+            do i = 1, nsx
+                dwdt_hm(i,k) = dwdt_hm(i,k) - w0_entire_domain(k) / tau_damp_mean
+            end do
+        end do
+
+    end if
   ! ----------------------------------------------------------------------------------------------------------
 end subroutine damping_hm
 
@@ -2093,7 +2139,7 @@ end subroutine face2center_U_inverse_filtered
 
 subroutine damp_for_target_inverse_prefilter(u_map)   ! version2, 换成了fft
     use grid, only: nsx, nzm
-    use vars, only: inverse_prefilter_k1_fraction, inverse_prefilter_k2_fraction
+    use vars, only: suppress_k_start
     implicit none
 
     real, intent(inout) :: u_map(nsx, nzm)
@@ -2117,8 +2163,9 @@ subroutine damp_for_target_inverse_prefilter(u_map)   ! version2, 换成了fft
     pi = acos(-1.0d0)
     k_nyq = nsx / 2
 
-    k1 = inverse_prefilter_k1_fraction * dble(k_nyq)
-    k2 = inverse_prefilter_k2_fraction * dble(k_nyq)
+    ! k1 = lowest suppressed wavenumber; k2 = Nyquist, always fully suppressed
+    k1 = dble(suppress_k_start)
+    k2 = dble(k_nyq)
 
     ! FFT991 requires two extra packed-spectrum entries.
     f_fft(:,:) = 0.0d0
@@ -2137,10 +2184,12 @@ subroutine damp_for_target_inverse_prefilter(u_map)   ! version2, 换成了fft
     do m = 0, k_nyq
         kk = dble(m)
 
-        if (kk <= k1) then
-            h_target = 1.0d0
-        else if (kk >= k2) then
+        ! Nyquist test comes first so that suppress_k_start = k_nyq
+        ! (the default) leaves an empty taper band rather than dividing by zero.
+        if (kk >= k2) then
             h_target = 0.0d0
+        else if (kk <= k1) then
+            h_target = 1.0d0
         else
             h_target = 0.5d0 * &
                 (1.0d0 + cos(pi * (kk-k1)/(k2-k1)))
@@ -2694,7 +2743,64 @@ subroutine diffuse_subdomain_large_scale(u_map,dudt_hm)
 end subroutine diffuse_subdomain_large_scale
 
 
+! ===========================================================================
+! Horizontal smoother for the host model.  diffuse_u / diffuse_w are
+! dispatchers over hm_smoother; see the parameter block in vars.f90 for the
+! definitions, coefficient guidance and stability limits.
+!
+! The k range is deliberately kept at the legacy 1..nzm-2 for u and 1..nz for
+! w in every option, so that switching hm_smoother changes the operator and
+! nothing else.  The top of the domain is covered by the sponge in damping_hm
+! (top 30% of the column, tau 1800-3600 s) regardless.
+! ===========================================================================
+
 subroutine diffuse_u(u_map,dudt_hm)
+    use vars
+    implicit none
+    real, intent(in)   :: u_map(nsx,nzm)
+    real, intent(inout)   :: dudt_hm(nsx,nzm)
+
+    select case (hm_smoother)
+    case (0)
+      return
+    case (1)
+      call diffuse_u_lap(u_map,dudt_hm)
+    case (2)
+      call diffuse_u_hyper(u_map,dudt_hm)
+    case (3)
+      call smag_visc_hm(u_map)
+      call diffuse_u_smag(u_map,dudt_hm)
+    case default
+      if(masterproc) write(*,*) 'diffuse_u: bad hm_smoother = ', hm_smoother
+      call task_abort()
+    end select
+end subroutine diffuse_u
+
+subroutine diffuse_w(w_map,dwdt_hm)
+    use vars
+    implicit none
+    real, intent(in)   :: w_map(nsx,nz)
+    real, intent(inout)   :: dwdt_hm(nsx,nz)
+
+    select case (hm_smoother)
+    case (0)
+      return
+    case (1)
+      call diffuse_w_lap(w_map,dwdt_hm)
+    case (2)
+      call diffuse_w_hyper(w_map,dwdt_hm)
+    case (3)
+      ! smag_nu_hm was filled by diffuse_u, which is always called first.
+      call diffuse_w_smag(w_map,dwdt_hm)
+    case default
+      if(masterproc) write(*,*) 'diffuse_w: bad hm_smoother = ', hm_smoother
+      call task_abort()
+    end select
+end subroutine diffuse_w
+
+!--------------------------------------------------- hm_smoother = 1, grad^2
+
+subroutine diffuse_u_lap(u_map,dudt_hm)
     use vars
     implicit none
     real, intent(in)   :: u_map(nsx,nzm)
@@ -2711,9 +2817,9 @@ subroutine diffuse_u(u_map,dudt_hm)
         dudt_hm(i,k) = dudt_hm(i,k) + diffuse_intensity*(u_map(ic,k) -2*u_map(i,k) + u_map(ib,k))/dt_hm_subcycle
       end do
     end do
-end subroutine diffuse_u
+end subroutine diffuse_u_lap
 
-subroutine diffuse_w(w_map,dwdt_hm)
+subroutine diffuse_w_lap(w_map,dwdt_hm)
     use vars
     implicit none
     real, intent(in)   :: w_map(nsx,nz)
@@ -2729,7 +2835,157 @@ subroutine diffuse_w(w_map,dwdt_hm)
         dwdt_hm(i,k) = dwdt_hm(i,k) + diffuse_intensity*(w_map(ic,k) -2*w_map(i,k) + w_map(ib,k))/dt_hm_subcycle
       end do
     end do
-end subroutine diffuse_w
+end subroutine diffuse_w_lap
+
+!--------------------------------------------------- hm_smoother = 2, grad^4
+! Tendency is -nu4 * d4u/dx4 with nu4 = hyper_intensity*dx_hm^4/dt_hm_subcycle,
+! i.e. in grid-index form  -hyper_intensity/dt * (u(i+2)-4u(i+1)+6u(i)
+! -4u(i-1)+u(i-2)).  The minus sign makes it dissipative: the stencil applied
+! to exp(i*theta*n) gives +16*sin^4(theta/2) >= 0.
+
+subroutine diffuse_u_hyper(u_map,dudt_hm)
+    use vars
+    implicit none
+    real, intent(in)   :: u_map(nsx,nzm)
+    real, intent(inout)   :: dudt_hm(nsx,nzm)
+
+    integer i,k,ip1,ip2,im1,im2
+    real coef
+
+    coef = hyper_intensity/dt_hm_subcycle
+
+    do k = 1,nzm-2
+      do i=1,nsx
+        ip1 = modulo(i    ,nsx) + 1
+        ip2 = modulo(i+1  ,nsx) + 1
+        im1 = modulo(i-2+nsx,nsx) + 1
+        im2 = modulo(i-3+2*nsx,nsx) + 1
+        dudt_hm(i,k) = dudt_hm(i,k) - coef*( u_map(ip2,k) - 4.*u_map(ip1,k) &
+                       + 6.*u_map(i,k) - 4.*u_map(im1,k) + u_map(im2,k) )
+      end do
+    end do
+end subroutine diffuse_u_hyper
+
+subroutine diffuse_w_hyper(w_map,dwdt_hm)
+    use vars
+    implicit none
+    real, intent(in)   :: w_map(nsx,nz)
+    real, intent(inout)   :: dwdt_hm(nsx,nz)
+
+    integer i,k,ip1,ip2,im1,im2
+    real coef
+
+    coef = hyper_intensity/dt_hm_subcycle
+
+    do k = 1,nz
+      do i=1,nsx
+        ip1 = modulo(i    ,nsx) + 1
+        ip2 = modulo(i+1  ,nsx) + 1
+        im1 = modulo(i-2+nsx,nsx) + 1
+        im2 = modulo(i-3+2*nsx,nsx) + 1
+        dwdt_hm(i,k) = dwdt_hm(i,k) - coef*( w_map(ip2,k) - 4.*w_map(ip1,k) &
+                       + 6.*w_map(i,k) - 4.*w_map(im1,k) + w_map(im2,k) )
+      end do
+    end do
+end subroutine diffuse_w_hyper
+
+!--------------------------------------------------- hm_smoother = 3, Smagorinsky
+! u(i) lives at x = (i-1)*dx_hm (left face of cell i), so
+!     sx(i) = (u(i+1)-u(i))/dx_hm
+! is the strain at the CENTRE of cell i, co-located with w and the scalars.
+! That difference is between adjacent u points, hence fully sensitive to a
+! 2*dx_hm wave (a centred difference over 2*dx_hm would be nearly blind to it:
+! measured 1.03x the large-scale deformation, versus 3.27x for this form).
+!
+! nu is then clamped by two independent caps, whichever is smaller:
+!   - smag_max_diff_vel*dx_hm       WRF's diffusive-velocity cap (10 m/s * dx)
+!   - smag_nu_max_frac*dx_hm^2/dt   explicit-diffusion stability (AB3 needs
+!                                   4*nu*dt/dx^2 < 0.545, so frac < 0.136)
+
+subroutine smag_visc_hm(u_map)
+    use vars
+    implicit none
+    real, intent(in)   :: u_map(nsx,nzm)
+
+    integer i,ic,k
+    real lsq, nu_cap, sx
+
+    lsq    = (smag_cs*dx_hm)**2
+    nu_cap = min( smag_max_diff_vel*dx_hm, &
+                  smag_nu_max_frac*dx_hm*dx_hm/dt_hm_subcycle )
+
+    do k = 1,nzm
+      do i = 1,nsx
+        ic = i + 1
+        if (ic > nsx) ic = ic - nsx
+        sx = (u_map(ic,k) - u_map(i,k))/dx_hm
+        smag_nu_hm(i,k) = min( lsq*abs(sx), nu_cap )
+      end do
+    end do
+end subroutine smag_visc_hm
+
+subroutine diffuse_u_smag(u_map,dudt_hm)
+    use vars
+    implicit none
+    real, intent(in)   :: u_map(nsx,nzm)
+    real, intent(inout)   :: dudt_hm(nsx,nzm)
+
+    integer i,ic,ib,k
+    real rdx2
+
+    rdx2 = 1.0/(dx_hm*dx_hm)
+
+    ! flux at centre i is nu(i)*(u(i+1)-u(i)); u(i) is flanked by centres i-1 and i
+    do k = 1,nzm-2
+      do i = 1,nsx
+        ic = i + 1
+        if (ic > nsx) ic = ic - nsx
+        ib = i - 1
+        if (ib < 1) ib = ib + nsx
+        dudt_hm(i,k) = dudt_hm(i,k) + rdx2*( &
+              smag_nu_hm(i ,k)*(u_map(ic,k) - u_map(i ,k)) &
+            - smag_nu_hm(ib,k)*(u_map(i ,k) - u_map(ib,k)) )
+      end do
+    end do
+end subroutine diffuse_u_smag
+
+subroutine diffuse_w_smag(w_map,dwdt_hm)
+    use vars
+    implicit none
+    real, intent(in)   :: w_map(nsx,nz)
+    real, intent(inout)   :: dwdt_hm(nsx,nz)
+
+    integer i,ic,ib,k,kc
+    real rdx2, nu_f_i, nu_f_ib
+
+    rdx2 = 1.0/(dx_hm*dx_hm)
+
+    ! w(i) sits at the centre of cell i, so the strain of w lives on the cell
+    ! faces (the u locations) and nu there is the average of the two centres.
+    ! Vertically, w(k) is a level face: average the two scalar levels that
+    ! straddle it, with one-sided values at the ends.
+    do k = 1,nz
+      kc = min(max(k,1),nzm)
+      do i = 1,nsx
+        ic = i + 1
+        if (ic > nsx) ic = ic - nsx
+        ib = i - 1
+        if (ib < 1) ib = ib + nsx
+        if (k > 1 .and. k <= nzm) then
+          nu_f_i  = 0.25*( smag_nu_hm(i ,k) + smag_nu_hm(ic,k) &
+                         + smag_nu_hm(i ,k-1) + smag_nu_hm(ic,k-1) )
+          nu_f_ib = 0.25*( smag_nu_hm(ib,k) + smag_nu_hm(i ,k) &
+                         + smag_nu_hm(ib,k-1) + smag_nu_hm(i ,k-1) )
+        else
+          nu_f_i  = 0.5*( smag_nu_hm(i ,kc) + smag_nu_hm(ic,kc) )
+          nu_f_ib = 0.5*( smag_nu_hm(ib,kc) + smag_nu_hm(i ,kc) )
+        end if
+        dwdt_hm(i,k) = dwdt_hm(i,k) + rdx2*( &
+              nu_f_i *(w_map(ic,k) - w_map(i ,k)) &
+            - nu_f_ib*(w_map(i ,k) - w_map(ib,k)) )
+      end do
+    end do
+end subroutine diffuse_w_smag
 
 subroutine diffuse_TQ(t_map)
     use vars
@@ -2766,7 +3022,9 @@ subroutine modify_U_for_subdomain()
       ! u0(k) = u0(k) + ug0_press_modify(k)
     end do
 
-    ! call boundaries(1)
+    ! Refresh the halo before advect_mom() sees it (see do_fix_u_halo in vars.f90).
+    ! periodic(1), not boundaries(1): dompi is .true. here.
+    if (do_fix_u_halo) call periodic(1)
 
 end subroutine modify_U_for_subdomain
 
@@ -2786,9 +3044,34 @@ subroutine remove_nyquist_U_for_subdomain()
       end do
     end do
 
-    ! call boundaries(1)
+    ! Refresh the halo before advect_mom() sees it (see do_fix_u_halo in vars.f90).
+    ! periodic(1), not boundaries(1): dompi is .true. here.
+    if (do_fix_u_halo) call periodic(1)
 
 end subroutine remove_nyquist_U_for_subdomain
+
+subroutine remove_residual_U_for_subdomain()
+! Subtract the coupling residual (one number per level) from this subdomain's U field.
+! ug0_resid is computed in host_model_evolve and scattered back in hm_couple_step.
+! Must be called after modify_U_for_subdomain, since the host side is based on the
+! subdomain state that already includes u_press_modify.
+    use vars
+    implicit none
+    integer i,j,k
+
+    do k=1,nzm
+      do j=1,ny
+        do i=1,nx
+          u(i,j,k) = u(i,j,k) - ug0_resid(k)
+        end do
+      end do
+    end do
+
+    ! Refresh the halo before advect_mom() sees it (see do_fix_u_halo in vars.f90).
+    ! periodic(1), not boundaries(1): dompi is .true. here.
+    if (do_fix_u_halo) call periodic(1)
+
+end subroutine remove_residual_U_for_subdomain
 
 ! ----------------------傅里叶变换消最高频------------------------------------------
 subroutine damp_highest_wavenumber(u_map)

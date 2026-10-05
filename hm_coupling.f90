@@ -21,6 +21,7 @@ subroutine hm_couple_step()
 
     real, allocatable :: u0_map(:,:),  t0_map(:,:), q0_map(:,:), qp0_map(:,:), tabs0_map(:,:), qn0_map(:,:)
     real, allocatable :: u_out_map(:,:), t_out_map(:,:), q_out_map(:,:), u_press_modify(:,:), u_nyquist_map(:,:)
+    real, allocatable :: u_resid_map(:,:)
     ! real, allocatable :: qpi_out_map(:,:), qpl_out_map(:,:), qni_out_map(:,:), qnl_out_map(:,:)
     real, allocatable :: w_out_map(:,:)
     real, allocatable :: dummy2d(:,:)
@@ -42,7 +43,7 @@ subroutine hm_couple_step()
                 prec_flx_map(nsx, nzm))
                 
         allocate(u_out_map(nsx, nzm), u_press_modify(nsx, nzm), &
-                u_nyquist_map(nsx, nzm), &
+                u_nyquist_map(nsx, nzm), u_resid_map(nsx, nzm), &
                 t_out_map(nsx, nzm), q_out_map(nsx, nzm))
 
         allocate(w_out_map(nsx, nz))
@@ -184,7 +185,7 @@ subroutine hm_couple_step()
                             qni0_in = qni0_map, qnl0_in = qnl0_map, qpi0_in = qpi0_map, qpl0_in = qpl0_map,  prec_flx_map=prec_flx_map, &
                             u_out_map=u_out_map,           &
                             w_out_map=w_out_map, t_out_map=t_out_map, q_out_map=q_out_map, u_press_modify = u_press_modify, &
-                            u_nyquist_map = u_nyquist_map)
+                            u_nyquist_map = u_nyquist_map, u_resid_map = u_resid_map)
         
         wsub_map(:, :)         = w_out_map(:, :)
 
@@ -225,6 +226,13 @@ subroutine hm_couple_step()
         call task_bscatter_float_map(0, dummy2d,  nzm, nsx, ug0_nyquist(1))
     end if
 
+    ! distribute ug0_resid (coupling residual)
+    if (masterproc) then
+        call task_bscatter_float_map(0, u_resid_map, nzm, nsx, ug0_resid(1))
+    else
+        call task_bscatter_float_map(0, dummy2d,  nzm, nsx, ug0_resid(1))
+    end if
+
     
     !------------------------------------------------------------
     ! clean up
@@ -242,6 +250,7 @@ subroutine hm_couple_step()
         if (allocated(w_out_map))  deallocate(w_out_map)  
         if (allocated(u_press_modify))  deallocate(u_press_modify)  
         if (allocated(u_nyquist_map))  deallocate(u_nyquist_map)
+        if (allocated(u_resid_map))  deallocate(u_resid_map)
     else
         if (allocated(dummy2d))  deallocate(dummy2d)
     end if

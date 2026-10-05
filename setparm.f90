@@ -63,10 +63,13 @@ NAMELIST /KUANG_PARAMS/ dompiensemble, &
                 donoisywave, noiselevel, &
                 dompimmf, nstephostmodel, hm_spinup_step, &
                 nouvchatting, but_nudge_u, hm_only, diffuse_intensity,do_3step_adams,hm_subcycle, &
+                hm_smoother, hyper_intensity, smag_cs, smag_max_diff_vel, smag_nu_max_frac, &
                 CRM_damping0, CRM_dampingRM, apply_hm_u_external_nudging, large_u_profile_filename, tauls_large_scale, &
                 diffuse_intensity_subdomain_large_scale, subdomain_center_at_hm_u_center, &
-                inverse_prefilter_k1_fraction, inverse_prefilter_k2_fraction, &
-                do_remove_nyquist_u, &
+                suppress_k_start, &
+                tau_damp_mean, do_damp_hm_mean, &
+                do_remove_nyquist_u, do_remove_coupling_residual, &
+                do_fix_u_halo, &
                 do_hm_bubble, hm_bubble_step, hm_bubble_z_bot, hm_bubble_z_top, hm_bubble_nsubdomain_half, hm_bubble_dtemp, &
                 add_initial_bubble, init_bubble_z_top, init_bubble_nsubdomain_half, init_bubble_dtemp
 
@@ -270,12 +273,119 @@ end if
           dx_hm = dx * nx / 1.0  ! 如果要改分辨率
           dt_hm = dt * nstephostmodel
           dt_hm_subcycle = dt_hm / hm_subcycle
+
+          ! ---- coupling filter: validate the suppressed wavenumber range ----
+          if(suppress_k_start.lt.0) suppress_k_start = nsx/2   ! default: Nyquist only
+          if(suppress_k_start.lt.1 .or. suppress_k_start.gt.nsx/2) then
+            if(masterproc) then
+              write(*,*) '*********************************************************'
+              write(*,*) '  ERROR: suppress_k_start = ', suppress_k_start
+              write(*,*) '  must satisfy  1 <= suppress_k_start <= nsx/2 = ', nsx/2
+              write(*,*) '  (nsx/2 is the Nyquist wavenumber of the host grid)'
+              write(*,*) '*********************************************************'
+            end if
+            call task_abort()
+          end if
+          if(hm_smoother.lt.0 .or. hm_smoother.gt.3) then
+            if(masterproc) then
+              write(*,*) '*********************************************************'
+              write(*,*) '  ERROR: hm_smoother = ', hm_smoother
+              write(*,*) '  must be 0 (none), 1 (grad^2), 2 (grad^4) or 3 (Smagorinsky).'
+              write(*,*) '  See the parameter block in vars.f90.'
+              write(*,*) '*********************************************************'
+            end if
+            call task_abort()
+          end if
+          if(smag_nu_max_frac.le.0.) then
+            if(masterproc) then
+              write(*,*) '*********************************************************'
+              write(*,*) '  ERROR: smag_nu_max_frac = ', smag_nu_max_frac
+              write(*,*) '  must be > 0; it is the stability clamp on the Smagorinsky'
+              write(*,*) '  viscosity, nu <= frac*dx_hm^2/dt_hm_subcycle (frac < 0.136).'
+              write(*,*) '*********************************************************'
+            end if
+            call task_abort()
+          end if
+          if(tau_damp_mean.le.0.) then
+            if(masterproc) then
+              write(*,*) '*********************************************************'
+              write(*,*) '  ERROR: tau_damp_mean = ', tau_damp_mean, ' s'
+              write(*,*) '  must be > 0 (seconds). Use do_damp_hm_mean = .false.'
+              write(*,*) '  to switch the domain-mean drag off instead.'
+              write(*,*) '*********************************************************'
+            end if
+            call task_abort()
+          end if
           if(masterproc) then
             write(*,*) '*********************************************************'
             write(*,*) '  Using the Kuang_Lab Multi-scale Modeling Framework'
             write(*,*) '  Coupling with a host model.'
             write(*,*) '  Currently only works with 2D Walker circulation.'
             write(*,*) '  The host model is run every ', nstephostmodel, ' steps.'
+            write(*,*) '  Coupling filter suppresses wavenumbers ', suppress_k_start, &
+                       ' to ', nsx/2, ' (Nyquist)'
+            write(*,*) '    i.e. host-scale wavelengths at or below ', &
+                       nsx*dx_hm/float(suppress_k_start)/1000., ' km'
+            write(*,*) '  do_fix_u_halo    = ', do_fix_u_halo, &
+                       ' (refresh the subdomain u halo right after the coupling increment)'
+            write(*,*) '  ----- domain-mean drag (damping_hm) -----'
+            if(do_damp_hm_mean) then
+              write(*,*) '  do_damp_hm_mean  = T, tau = ', tau_damp_mean, ' s =', tau_damp_mean/86400., ' days'
+              if(apply_hm_u_external_nudging) then
+                write(*,*) '  relaxes <u> toward the prescribed external profile'
+                write(*,*) '  (same target as the nudging, so they do not fight)'
+              else
+                write(*,*) '  relaxes <u> toward zero (no external profile given)'
+              end if
+            else
+              write(*,*) '  do_damp_hm_mean  = F  <- domain-mean wind is unbounded'
+              write(*,*) '  unless apply_hm_u_external_nudging holds it'
+            end if
+            write(*,*) '  ----- horizontal smoother (see vars.f90) -----'
+            select case (hm_smoother)
+            case (0)
+              write(*,*) '  hm_smoother = 0 : none'
+            case (1)
+              write(*,*) '  hm_smoother = 1 : grad^2, diffuse_intensity = ', diffuse_intensity
+              write(*,*) '    nu            = ', diffuse_intensity*dx_hm*dx_hm/dt_hm_subcycle, ' m2/s'
+              write(*,*) '    e-fold at 2dx = ', dt_hm_subcycle/max(4.*diffuse_intensity,1.e-30)/3600., ' h'
+              write(*,*) '    e-fold at 1000 km = ', &
+                   1./max(diffuse_intensity*dx_hm*dx_hm/dt_hm_subcycle,1.e-30) &
+                   /(2.*3.14159265/1.e6)**2/3600., ' h'
+            case (2)
+              write(*,*) '  hm_smoother = 2 : grad^4, hyper_intensity  = ', hyper_intensity
+              write(*,*) '    nu4           = ', hyper_intensity*dx_hm**4/dt_hm_subcycle, ' m4/s'
+              write(*,*) '    e-fold at 2dx = ', dt_hm_subcycle/max(16.*hyper_intensity,1.e-30)/3600., ' h'
+              write(*,*) '    e-fold at 1000 km = ', &
+                   1./max(hyper_intensity*dx_hm**4/dt_hm_subcycle,1.e-30) &
+                   /(2.*3.14159265/1.e6)**4/3600., ' h'
+            case (3)
+              write(*,*) '  hm_smoother = 3 : Smagorinsky, smag_cs = ', smag_cs
+              write(*,*) '    equivalent C (=pi*Cs, MITgcm/Griffies-Hallberg) = ', 3.14159265*smag_cs
+              write(*,*) '    nu = (smag_cs*dx_hm)^2*|du/dx|, prefactor = ', (smag_cs*dx_hm)**2, ' m2'
+              write(*,*) '    cap: min(', smag_max_diff_vel*dx_hm, ',', &
+                   smag_nu_max_frac*dx_hm*dx_hm/dt_hm_subcycle, ') m2/s'
+            end select
+            ! AB3 real-axis stability limit is about 0.545
+            if(hm_smoother.eq.1 .and. 4.*diffuse_intensity.gt.0.545) then
+              write(*,*) '  *** WARNING: 4*diffuse_intensity = ', 4.*diffuse_intensity, &
+                         ' exceeds the AB3 real-axis limit 0.545'
+            end if
+            if(hm_smoother.eq.2 .and. 16.*hyper_intensity.gt.0.545) then
+              write(*,*) '  *** WARNING: 16*hyper_intensity = ', 16.*hyper_intensity, &
+                         ' exceeds the AB3 real-axis limit 0.545'
+            end if
+            if(hm_smoother.eq.3 .and. 4.*smag_nu_max_frac.gt.0.545) then
+              write(*,*) '  *** WARNING: 4*smag_nu_max_frac = ', 4.*smag_nu_max_frac, &
+                         ' exceeds the AB3 real-axis limit 0.545'
+            end if
+            if(hm_smoother.eq.2 .and. hyper_intensity.le.0.) &
+              write(*,*) '  *** NOTE: hm_smoother=2 but hyper_intensity <= 0, so no smoothing'
+            if(hm_smoother.eq.3 .and. smag_cs.le.0.) &
+              write(*,*) '  *** NOTE: hm_smoother=3 but smag_cs <= 0, so no smoothing'
+            if(hm_smoother.ne.1 .and. diffuse_intensity.ne.0.) &
+              write(*,*) '  *** NOTE: diffuse_intensity = ', diffuse_intensity, &
+                         ' is IGNORED because hm_smoother /= 1'
             write(*,*) '*********************************************************'
           end if
         end if

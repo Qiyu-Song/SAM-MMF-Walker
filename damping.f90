@@ -11,7 +11,7 @@ real tau_min	! minimum damping time-scale (at the top)
 real tau_max    ! maxim damping time-scale (base of damping layer)
 real damp_depth ! damping depth as a fraction of the domain height
 parameter(tau_min=60., tau_max=1800., damp_depth=0.3)
-real tau(nzm)   
+real tau(nzm)
 integer i, j, k, n_damp
 
 call t_startf ('damping')
@@ -49,9 +49,9 @@ if (CRM_damping0) then   ! 只有跑纯SAM的时候才打开
    do k = 1, nzm
       do j=1,ny
          do i=1,nx
-            dudt(i,j,k,na)= dudt(i,j,k,na)-(u(i,j,k)-0)/20.0/86400.0
-            dvdt(i,j,k,na)= dvdt(i,j,k,na)-(v(i,j,k)-0)/20.0/86400.0
-            dwdt(i,j,k,na)= dwdt(i,j,k,na)-w(i,j,k)/20.0/86400.0
+            dudt(i,j,k,na)= dudt(i,j,k,na)-(u(i,j,k)-0) / tau_damp_mean
+            dvdt(i,j,k,na)= dvdt(i,j,k,na)-(v(i,j,k)-0) / tau_damp_mean
+            dwdt(i,j,k,na)= dwdt(i,j,k,na)-w(i,j,k) / tau_damp_mean
 
          end do! i 
       end do! j
@@ -62,8 +62,8 @@ elseif (CRM_dampingRM) then  ! 只有跑纯SAM的时候才打开
    do k = 1, nzm
       do j=1,ny
          do i=1,nx
-            dudt(i,j,k,na)= dudt(i,j,k,na)-u_domain_avg(k)/20.0/86400.0
-            dvdt(i,j,k,na)= dvdt(i,j,k,na)-v_domain_avg(k)/20.0/86400.0
+            dudt(i,j,k,na)= dudt(i,j,k,na)-u_domain_avg(k) / tau_damp_mean
+            dvdt(i,j,k,na)= dvdt(i,j,k,na)-v_domain_avg(k) / tau_damp_mean
          end do! i 
       end do! j
    end do ! k
@@ -71,7 +71,7 @@ elseif (CRM_dampingRM) then  ! 只有跑纯SAM的时候才打开
    do k = 1, nz
       do j=1,ny
          do i=1,nx
-            dwdt(i,j,k,na)= dwdt(i,j,k,na)-w_domain_avg(k)/20.0/86400.0
+            dwdt(i,j,k,na)= dwdt(i,j,k,na)-w_domain_avg(k) / tau_damp_mean
          end do! i 
       end do! j
    end do ! k

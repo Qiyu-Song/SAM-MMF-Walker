@@ -152,6 +152,9 @@ do while(nstep.lt.nstop.and.nelapse.gt.0)
                     if (do_remove_nyquist_u) then
                          call remove_nyquist_U_for_subdomain()
                     end if
+                    if (do_remove_coupling_residual) then
+                         call remove_residual_U_for_subdomain()
+                    end if
                     if (.not. could_hm_nudging) then
                          could_hm_nudging = .true.
                     end if
