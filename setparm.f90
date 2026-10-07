@@ -71,7 +71,8 @@ NAMELIST /KUANG_PARAMS/ dompiensemble, &
                 do_remove_nyquist_u, do_remove_coupling_residual, &
                 do_fix_u_halo, &
                 do_hm_bubble, hm_bubble_step, hm_bubble_z_bot, hm_bubble_z_top, hm_bubble_nsubdomain_half, hm_bubble_dtemp, &
-                add_initial_bubble, init_bubble_z_top, init_bubble_nsubdomain_half, init_bubble_dtemp
+                add_initial_bubble, init_bubble_z_top, init_bubble_nsubdomain_half, init_bubble_dtemp, &
+                hm_t_exclude_precip
 
 
                 
@@ -270,7 +271,7 @@ end if
         end if
 
         if(dompimmf) then
-          dx_hm = dx * nx / 1.0  ! 如果要改分辨率
+          dx_hm = dx * nx / 4.0  ! 如果要改分辨率
           dt_hm = dt * nstephostmodel
           dt_hm_subcycle = dt_hm / hm_subcycle
 
@@ -328,6 +329,13 @@ end if
                        nsx*dx_hm/float(suppress_k_start)/1000., ' km'
             write(*,*) '  do_fix_u_halo    = ', do_fix_u_halo, &
                        ' (refresh the subdomain u halo right after the coupling increment)'
+            if(hm_t_exclude_precip) then
+              write(*,*) '  hm_t_exclude_precip = T: host t = <t> + fac_cond*<qpl> + fac_sub*<qpi>'
+              write(*,*) '    (precipitation and its latent-heat deficit stay in the CRM, as in SPCAM)'
+            else
+              write(*,*) '  hm_t_exclude_precip = F: host t = <t>, includes the precipitation term'
+              write(*,*) '    (host advects the deficit of qp but not qp itself)'
+            end if
             write(*,*) '  ----- domain-mean drag (damping_hm) -----'
             if(do_damp_hm_mean) then
               write(*,*) '  do_damp_hm_mean  = T, tau = ', tau_damp_mean, ' s =', tau_damp_mean/86400., ' days'

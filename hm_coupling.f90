@@ -70,6 +70,11 @@ subroutine hm_couple_step()
 
     u0_local_hm = u0
     t0_local_hm = t0
+    if (hm_t_exclude_precip) then
+        ! host sees t without the precipitation term (SPCAM's t00); qpl0/qpi0 are the subdomain means
+        ! computed above from the same state as t0 (both after micro_proc + diagnose of the last step)
+        t0_local_hm = t0 + fac_cond*qpl0_local_hm + fac_sub*qpi0_local_hm
+    end if
     q0_local_hm = q0
     tabs0_local_hm = tabs0
     qn0_local_hm = qn0

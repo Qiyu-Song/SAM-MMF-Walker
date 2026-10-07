@@ -401,6 +401,16 @@ real :: init_bubble_z_top = 5000.0              ! 扰动区顶 [m]（地面最�
 integer :: init_bubble_nsubdomain_half = 1      ! 水平半宽（subdomain 数）
 real :: init_bubble_dtemp = -0.25               ! 扰动幅度 [K]
 
+! Host-model temperature variable without precipitation (as in SPCAM's crm_module, where the
+! large-scale forcing uses t00 = <t + fac_cond*qpl + fac_sub*qpi>).
+! The CRM's t = tabs + gamaz - fac_cond*(qcl+qpl) - fac_sub*(qci+qpi) contains the latent-heat
+! deficit of precipitation, but the host advects only q0 = qv+qcl+qci and never moves qp.
+! With .false. (old behaviour) the host advects that deficit away from the raining column while
+! the rain stays: downstream columns are cooled and the raining column warmed by ~|u|*L*qp/(cp*dx).
+! With .true. the host gets t0 + fac_cond*qpl0 + fac_sub*qpi0, so precipitation and its deficit
+! both stay in the CRM column.
+logical :: hm_t_exclude_precip = .false.
+
 logical :: do_remove_nyquist_u = .false.
 real ug0_nyquist(nzm)   ! Nyquist (2-subdomain) component of U to be removed from each subdomain
 

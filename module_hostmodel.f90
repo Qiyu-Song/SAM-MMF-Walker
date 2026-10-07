@@ -533,15 +533,25 @@ subroutine host_model_evolve( &
     if (hm_only) then
       call buoyancy_only_in_hm(t_hm_map, q_hm_map, dwdt_hm)
     else
+      if (hm_t_exclude_precip) then
+        ! t_hm_map carries no precipitation term (see hm_t_exclude_precip in vars.f90)
+        do k = 1, nzm
+            do i = 1, nsx
+                tabs_map_hm(i,k) = t_hm_map(i,k) - gamaz(k) &
+                          + fac_cond * qnl0_in_hm(i,k) + fac_sub * qni0_in_hm(i,k)
+            end do
+        end do
+      else
       do k = 1, nzm
           do i = 1, nsx
-            
+
               tabs_map_hm(i,k) = t_hm_map(i,k) - gamaz(k) &
                         + fac_cond * (qnl0_in_hm(i,k)+qpl0_in_hm(i,k)) &
                         + fac_sub *(qni0_in_hm(i,k) + qpi0_in_hm(i,k))    ! tabs(i,j,k) = t(i,j,k)-gamaz(k)+ fac_cond * (qcl(i,j,k)+qpl(i,j,k)) +fac_sub *(qci(i,j,k) + qpi(i,j,k))
-            
-          end do   
+
+          end do
       end do
+      end if
       
       call buoyancy_hm(tabs_map_hm, q_hm_map-qn0_in_hm, qn0_in_hm, qp0_in_hm, dwdt_hm)
       
