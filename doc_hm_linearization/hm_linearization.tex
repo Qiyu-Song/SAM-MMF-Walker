@@ -1,0 +1,244 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage{fontspec}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs,array,longtable}
+\usepackage[margin=2.2cm]{geometry}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage[colorlinks=true,linkcolor=blue!50!black,urlcolor=blue!50!black]{hyperref}
+
+\setmainfont{Droid Sans Fallback}[AutoFakeBold=2.5,AutoFakeSlant=0.15]
+\setsansfont{Droid Sans Fallback}[AutoFakeBold=2.5]
+\setmonofont{DejaVu Sans Mono}[Scale=0.85]
+\XeTeXlinebreaklocale "zh"
+\XeTeXlinebreakskip = 0pt plus 1pt
+\linespread{1.25}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.6em}
+
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\avg}[1]{\langle #1\rangle}
+\newcommand{\pd}[2]{\frac{\partial #1}{\partial #2}}
+\newcommand{\aI}{\frac{1}{\alpha}}
+
+\title{SAM-MMF host model 的大尺度方程\\及其在 \code{hm\_coupling\_scale} 下的线性化}
+\author{SAM-MMF-Walker-tendency\_nudging2 \quad \code{module\_hostmodel.f90}}
+\date{2026-10-08}
+
+\begin{document}
+\maketitle
+
+\section*{0. 说明}
+
+本文写出 host model 实际离散求解的方程（按 \code{host\_model\_evolve} 中各子程序整理），然后说明引入振幅缩放系数 $\alpha$（namelist 变量 \code{hm\_coupling\_scale}）之后，CRM 实际感受到的大尺度动力学变成什么样。最后以 LU00、$\alpha=100$ 的算例为例，列出实际保留下来的项。
+
+记号：$\avg{\cdot}$ 表示同一层 $n_{sx}$ 列（subdomain）的区域平均；带撇的量表示偏离区域平均的部分；$\rho(z)$ 为参考密度。
+
+\section{host model 求解的方程}
+
+二维 $x$-$z$ 非弹性（anelastic）系统，$x$ 方向周期，共 $n_{sx}$ 列，格距 $\Delta x_{hm}$。$u$ 位于格子左面，$w$ 位于层界面，$t$、$q$ 位于格子中心。
+
+\subsection{动量方程}
+
+（\code{advect\_mom\_hm}、\code{pressure\_hm}、\code{damping\_hm}、\code{diffuse\_u/w}、\code{nudge\_u\_to\_external\_profile}）
+\begin{align}
+\pd{u}{t} &= \underbrace{-\pd{(uu)}{x} - \frac{1}{\rho}\pd{(\rho w u)}{z}}_{\text{动量平流（通量形式，二阶中心）}}
+ - \pd{\pi}{x}
+ - \nu_4 \frac{\partial^4 u}{\partial x^4}
+ - \frac{u-\avg{u}}{\tau_{sp}(z)} \nonumber\\
+ &\qquad - \frac{\avg{u}-U_{ext}(z)}{\tau_{ls}}
+ - \frac{\avg{u}-U_{ext}(z)}{\tau_{dm}} \label{eq:u}\\[4pt]
+\pd{w}{t} &= -\pd{(uw)}{x} - \frac{1}{\rho}\pd{(\rho w w)}{z}
+ - \pd{\pi}{z} + B
+ - \nu_4 \frac{\partial^4 w}{\partial x^4}
+ - \frac{w-\avg{w}}{\tau_{sp}(z)}
+ - \frac{\avg{w}}{\tau_{dm}} \label{eq:w}
+\end{align}
+其中
+\begin{itemize}[leftmargin=1.5em,itemsep=2pt]
+\item $\pi=p'/\rho$。
+\item $\nu_4 = \code{hyper\_intensity}\cdot\Delta x_{hm}^4/\Delta t_{sub}$（\code{hm\_smoother = 2}；$u$ 只作用于 $k\le n_{zm}-2$）。
+\item $\tau_{sp}$：顶部 30\% 的 sponge，从层底 3600 s 按指数过渡到模式顶 1800 s。
+\item $\tau_{ls}$ = \code{tauls\_large\_scale}，只在 \code{apply\_hm\_u\_external\_nudging} 时出现。
+\item $\tau_{dm}$ = \code{tau\_damp\_mean}（默认 20 天），在 \code{do\_damp\_hm\_mean}（默认开）时出现。
+\end{itemize}
+
+$\pi$ 由压力投影求出，使速度满足连续方程：
+\begin{equation}
+\pd{(\rho u)}{x} + \pd{(\rho w)}{z} = 0
+\quad\Longrightarrow\quad
+\nabla\cdot(\rho\nabla\pi) = \nabla\cdot\big(\rho\,\mathbf{F}\big) + \frac{\nabla\cdot(\rho\mathbf{u})}{\Delta t},
+\end{equation}
+$\mathbf{F}$ 为除气压外的全部 tendency（AB3 时还包含历史 tendency）。$x$ 方向用 FFT，$z$ 方向解三对角方程。
+
+\subsection{浮力}
+
+（\code{buoyancy\_hm}；系数全部为区域平均量，$g/T_0$ 即 SAM 的 \code{bet}）
+\begin{equation}
+B = \frac{g}{T_0}\Big[\,\bar T\big(\epsilon_v (q_v-\bar q_v) - (q_n-\bar q_n) - (q_p-\bar q_p)\big)
+ + (T-\bar T)\big(1+\epsilon_v\bar q_v-\bar q_n-\bar q_p\big)\Big],
+\label{eq:B}
+\end{equation}
+\begin{equation}
+T = t - \frac{gz}{c_p} + \frac{L_c}{c_p}q_{nl} + \frac{L_s}{c_p}q_{ni}\quad(\code{hm\_t\_exclude\_precip}=\code{.true.}),\qquad
+q_v = q - q_n .
+\end{equation}
+\code{hm\_t\_exclude\_precip = .false.} 时，$T$ 中还要加上 $\frac{L_c}{c_p}q_{pl}+\frac{L_s}{c_p}q_{pi}$。凝结物 $q_n,q_p,q_{nl},q_{ni}$ 不由 host 预报，直接取 CRM 的 subdomain 平均。$B$ 在标量层上算出，再插值到 $w$ 层。
+
+\subsection{标量方程}
+
+（\code{advect\_scalars\_hm}，MPDATA 通量形式，带 non-oscillatory 限幅）对 $f=t,\,q$：
+\begin{equation}
+\pd{f}{t} = -\frac{1}{\rho}\left[\pd{(\rho u f)}{x} + \pd{(\rho w f)}{z}\right].
+\label{eq:f}
+\end{equation}
+host 不对 $t,q$ 加显式扩散（\code{diffuse\_TQ} 已注释），只有 MPDATA 自身的数值扩散。
+
+\subsection{时间推进}
+
+$u,w$ 用 AB3（\code{adams\_hm}），每个 host step（$\Delta t_{hm}=$ \code{nstephostmodel}$\cdot\Delta t$）走 \code{hm\_subcycle} 个小步；标量用时间平均的 $u,w$ 做平流。
+
+\subsection{和 CRM 的耦合}
+
+每个 host step：
+\begin{enumerate}[leftmargin=1.5em,itemsep=2pt]
+\item \textbf{进 host}：$X_{host} \mathrel{+}= $ CRM 自身产生的调整量（CRM 总变化减去上一步 host 给的增量）。$u$ 经 \code{center2face\_U\_inverse\_filtered} 插值并截掉 Nyquist。加完后对 $u,w$ 做一次压力投影，修正量 \code{u\_press\_modify} 送回 CRM。
+\item host 演变 \code{hm\_subcycle} 个小步（方程 \eqref{eq:u}--\eqref{eq:f}）。
+\item \textbf{回 CRM}：CRM 增量 $=$ host 这一步的增量（$u$ 经 \code{face2center\_U\_inverse\_filtered}）$+\;\Delta t_{hm}\cdot$直接 subdomain 扩散（用 CRM 场计算）。CRM 在接下来 \code{nstephostmodel} 步里通过 \code{nudging\_hm} 均匀加入。
+\end{enumerate}
+
+\section{振幅缩放与线性化}
+
+\subsection{缩放的定义}
+
+host 中每个量拆成区域平均和偏差，\textbf{只缩放偏差}：
+\begin{equation}
+u_{host} = \bar U(z,t) + \frac{u'}{\alpha},\qquad
+w_{host} = \frac{w'}{\alpha},\qquad
+t_{host} = \bar t(z,t) + \frac{t'}{\alpha},\qquad
+q_{host} = \bar q(z,t) + \frac{q'}{\alpha}.
+\end{equation}
+凝结物同样是“平均 $+$ 偏差$/\alpha$”。$u',t',\dots$ 是 CRM 实际持有的物理偏差；区域平均 $\bar U,\bar t,\bar q$ 跟随 CRM 的区域平均，不缩放。由连续方程和底边界 $w=0$，有 $\avg{w}\equiv 0$。
+
+host 增量交回 CRM 时，偏差部分乘 $\alpha$，平均部分原样。所以对任一过程 $\mathcal{F}$，CRM 感受到的偏差 tendency 为
+\begin{equation}
+\alpha\cdot\Big[\mathcal{F}\big(\bar X + x'/\alpha\big)\Big]' .
+\end{equation}
+$\mathcal{F}$ 关于偏差线性的部分不变，二次部分变成 $1/\alpha$。
+
+\subsection{逐项代入}
+
+\paragraph{(1) $u$ 的动量平流。}
+利用连续方程和 $\avg{w}=0$，写成平流形式：
+\begin{align}
+&\alpha\left[-\Big(\bar U+\frac{u'}{\alpha}\Big)\pd{}{x}\frac{u'}{\alpha} - \frac{w'}{\alpha}\pd{}{z}\Big(\bar U+\frac{u'}{\alpha}\Big)\right]' \nonumber\\
+&\qquad= \underbrace{-\bar U\pd{u'}{x} - w'\pd{\bar U}{z}}_{\text{线性：背景风平流 + 背景切变，不变}}
+\;-\;\aI\underbrace{\left[u'\pd{u'}{x}+w'\pd{u'}{z}\right]'}_{\text{非线性}} .
+\end{align}
+
+\paragraph{(2) $w$ 的动量平流。}
+\begin{equation}
+-\bar U\pd{w'}{x} \;-\; \aI\left[u'\pd{w'}{x}+w'\pd{w'}{z}\right]' .
+\end{equation}
+
+\paragraph{(3) 标量平流（$t$、$q$）。}
+$\bar t,\bar q$ 水平均匀，水平平流只作用在偏差上：
+\begin{align}
+&-\bar U\pd{t'}{x} \;-\; w'\pd{\bar t}{z} \;-\; \aI\left[u'\pd{t'}{x}+w'\pd{t'}{z}\right]' ,\\
+&-\bar U\pd{q'}{x} \;-\; w'\pd{\bar q}{z} \;-\; \aI\left[u'\pd{q'}{x}+w'\pd{q'}{z}\right]' .
+\end{align}
+$-w'\,\partial\bar t/\partial z$ 是大尺度上升冷却、下沉增温，$-w'\,\partial\bar q/\partial z$ 是大尺度的水汽垂直输送，两者都完整保留。
+
+\paragraph{(4) 浮力。}
+式 \eqref{eq:B} 本身是偏差的线性组合，系数为区域平均，所以
+\begin{equation}
+\alpha\, B\big(\text{偏差}/\alpha\big) = \frac{g}{T_0}\Big[\bar T\big(\epsilon_v q_v' - q_n' - q_p'\big) + T'\big(1+\epsilon_v\bar q_v-\bar q_n-\bar q_p\big)\Big],
+\end{equation}
+\begin{equation}
+T' = t' + \frac{L_c}{c_p}q_{nl}' + \frac{L_s}{c_p}q_{ni}' ,
+\end{equation}
+完全不变。前提是凝结物也按同样方式缩放（代码中已做）。
+
+\paragraph{(5) 气压与连续方程。}
+泊松方程和连续方程都是线性的，$\pi'=\alpha\,\pi_{host}'$，$-\nabla\pi'$ 不变。
+
+\paragraph{(6) 其他线性项：不变。}
+四阶超扩散 $-\nu_4\partial_x^4 u'$；sponge $-(u-\avg u)/\tau_{sp}$（只作用于偏差）；AB3（线性组合）；耦合插值与 Nyquist 截断（线性，且 $k=0$ 响应为 1，保持平均）；直接 subdomain 扩散（在 CRM 空间计算，本来就不缩放）。
+
+\paragraph{(7) 只作用在平均上的项：不变。}
+平均风 nudging $-(\avg u - U_{ext})/\tau_{ls}$ 和平均拖曳只依赖 $\avg u$，而平均态不缩放。
+
+\paragraph{(8) 平均态方程。}
+取区域平均后，偏差的线性项全部为零（$\avg{w'}=0$，$\avg{\partial_x(\cdot)}=0$），只剩
+\begin{align}
+\pd{\bar U}{t} &= (\text{CRM 平均调整}) - \frac{\bar U-U_{ext}}{\tau_{ls}} - \frac{\bar U-U_{ext}}{\tau_{dm}}
+ - \frac{1}{\alpha^2}\,\frac{1}{\rho}\pd{\big(\rho\avg{w'u'}\big)}{z},\\
+\pd{\bar t}{t} &= (\text{CRM 平均调整}) - \frac{1}{\alpha^2}\,\frac{1}{\rho}\pd{\big(\rho\avg{w't'}\big)}{z},
+\qquad \bar q \text{ 同理}.
+\end{align}
+涡动通量在 host 内是 $1/\alpha^2$ 量级，平均部分原样返回，所以它对平均态的反馈是 $1/\alpha^2$。
+
+\subsection{汇总}
+
+在 CRM 单位下，host 等价于求解
+\begin{equation}
+\boxed{\begin{aligned}
+\pd{x'}{t} &= \mathcal{L}\big[\bar U,\bar t,\bar q\big](x') + \aI\,\mathcal{N}(x',x') + \text{CRM 强迫}\\
+\pd{\bar X}{t} &= \text{平均强迫} + \frac{1}{\alpha^2}\avg{\text{涡动通量}}
+\end{aligned}}
+\end{equation}
+$\mathcal{L}$ 是围绕\textbf{当前区域平均态} $(\bar U,\bar t,\bar q)$ 的线性算子。$\alpha\to\infty$ 时，host 即为在当前平均态上线性化的非弹性大尺度动力学。
+
+\subsection{数值格式中的非线性}
+
+\begin{itemize}[leftmargin=1.5em,itemsep=2pt]
+\item \textbf{MPDATA 迎风步}：$\max(0,w)\,f$ 关于速度一次齐次，$\max(0,w/\alpha)=\max(0,w)/\alpha$，所以背景层结上的迎风数值扩散 $|w'|\,\Delta\bar f$ 不变。
+\item \textbf{MPDATA 反扩散步}：$\code{andiff}=(|a|-a^2 b)\Delta f/2$ 中 $|a|$ 部分不变，$a^2$ 项与 cross 项变为 $1/\alpha$，相当于 Courant 数 $\to 0$ 的极限。
+\item \textbf{non-oscillatory 限幅器}：上下界主要由不缩放的背景垂直梯度决定，分母通量 $\propto 1/\alpha$，$\alpha$ 大时限幅系数趋于 1，基本不起作用。
+\item \textbf{Smagorinsky}（\code{hm\_smoother = 3}）：$\nu\propto|\partial_x u|$，缩放后变为 $\nu/\alpha$，扩散整体弱 $\alpha$ 倍。做 $\alpha$ 扫描时建议用 \code{hm\_smoother = 1} 或 \code{2}（线性）。
+\end{itemize}
+
+\section{例：LU00、$\alpha=100$ 的算例}
+
+算例 namelist：\code{prm.LU00\_L64\_C128x128\_24st4subc\_90d\_a100}，相关设置：
+\begin{itemize}[leftmargin=1.5em,itemsep=1pt]
+\item 外部风廓线全为 0：\\ \code{large\_scale\_U\_split5km\_low0p00\_upper0p00.txt}
+\item $\tau_{ls}=3600$ s；\code{hm\_smoother = 2}；AB3；\code{hm\_subcycle = 4}
+\item \code{hm\_t\_exclude\_precip = .true.}；\code{subdomain\_center\_at\_hm\_u\_center = .true.}
+\end{itemize}
+因此 $\bar U\approx 0$。
+
+\begin{center}
+\begin{tabular}{p{6.2cm}p{2.4cm}p{6.2cm}}
+\toprule
+项 & $\alpha=1$ & $\alpha=100$（CRM 单位下）\\
+\midrule
+动量平流（$u$、$w$） & 全部保留 & $\bar U\approx0$，线性部分为零；只剩非线性部分，约 $1/100$，\textbf{基本消失} \\
+标量水平平流 $u'\partial_x t'$ & 保留 & $1/100$ \\
+$w'\partial_z\bar t$、$w'\partial_z\bar q$ & 保留 & \textbf{完整保留} \\
+$w'\partial_z t'$ & 保留 & $1/100$ \\
+浮力、气压、连续方程 & 保留 & \textbf{完整保留} \\
+超扩散、sponge、平均 nudging & 保留 & \textbf{完整保留} \\
+涡动通量对平均态的反馈 & 保留 & $10^{-4}$，相当于没有 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+所以 $\alpha=100$ 时，host 实际上是一个\textbf{静止背景上的线性非弹性重力波模式}：
+\begin{align}
+\pd{u'}{t} &= -\pd{\pi'}{x} + \text{耗散}, &
+\pd{w'}{t} &= -\pd{\pi'}{z} + B' + \text{耗散},\\
+\pd{t'}{t} &= -w'\pd{\bar t}{z} + \text{CRM 调整（对流加热等）}, &
+\pd{q'}{t} &= -w'\pd{\bar q}{z} + \text{CRM 调整}.
+\end{align}
+它由 CRM 的对流加热和增湿驱动，层结 $\bar t,\bar q$ 跟随 CRM 区域平均演变。物理上与 Kuang 类的 linear wave coupling 接近，区别有两点：这里是物理空间的二维 $x$-$z$ 模式，不是逐个波数的谱方法；层结取当前平均，而不是固定参考廓线。
+
+\section{注意事项}
+
+\begin{itemize}[leftmargin=1.5em,itemsep=3pt]
+\item \textbf{输出单位}：host 自身的场（\code{U\_LS}、\code{t\_LS}、\code{q\_LS}、\code{*\_LS}、\code{p\_phys3}、host 的 W）为 host 单位，偏离区域平均的部分乘 $\alpha$ 才是物理量。\code{Uout\_CS}、\code{Uadj\_CS}、\code{Tadj}/\code{Qadj}、\code{U\_resid}、\code{U\_nyq} 为 CRM 单位。
+\item \textbf{restart}：保存的 host 状态和 AB3 历史都是 host 单位，同一条 restart 链里 $\alpha$ 不能改变。
+\item \textbf{参考态的选择}：当前实现围绕“当前区域平均”线性化，和 $\alpha=1$ 相比只差非线性项。若改为围绕固定参考态 $X_{ref}$（$x_{host}=X_{ref}+(X-X_{ref})/\alpha$），$\mathcal{L}$ 将不随时间变化，更接近线性理论。但需要：参考廓线取区域平均而非 masterproc 一个 subdomain 的 \code{t0}；$u$ 的参考为背景风；凝结物使用同一参考；参考态写入 restart。本算例 \code{hm\_spinup\_step = 0}，若用固定参考，参考廓线将是初始 snd 而非 RCE 平衡态。
+\end{itemize}
+
+\end{document}

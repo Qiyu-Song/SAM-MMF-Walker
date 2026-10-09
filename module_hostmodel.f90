@@ -285,6 +285,7 @@ subroutine host_model_evolve( &
   real :: qnl0_in_hm(nsx, nzm)
   real :: qpi0_in_hm(nsx, nzm)
   real :: qpl0_in_hm(nsx, nzm)
+  real :: hm_scale   ! effective hm_coupling_scale (1 when hm_only)
 
   ! real :: u_nyquist(nsx,nzm)
   ! real :: t_nyquist(nsx,nzm)
@@ -320,6 +321,17 @@ subroutine host_model_evolve( &
     call output_host_model_single_variable(qpi0_in_hm, 'qpi0_hm', 'qpi0_in_hm' , 'kg/kg', 0)
     call output_host_model_single_variable(qpl0_in_hm, 'qpl0_hm', 'qpl0_in_hm' , 'kg/kg', 0)
   end if
+
+  hm_scale = hm_coupling_scale
+  if (hm_only) hm_scale = 1.
+
+  ! condensates enter the host buoyancy next to t_hm_map/q_hm_map, so they must be in host units too
+  call scale_hm_anomaly(qn0_in_hm,  1./hm_scale)
+  call scale_hm_anomaly(qp0_in_hm,  1./hm_scale)
+  call scale_hm_anomaly(qni0_in_hm, 1./hm_scale)
+  call scale_hm_anomaly(qnl0_in_hm, 1./hm_scale)
+  call scale_hm_anomaly(qpi0_in_hm, 1./hm_scale)
+  call scale_hm_anomaly(qpl0_in_hm, 1./hm_scale)
 
 
 
@@ -363,6 +375,7 @@ subroutine host_model_evolve( &
         ! call center2face_U((u0_in-u_sub_map_save-tmp1), tmp2)
         
         call face2center_U_inverse_filtered((u_hm_updated_map_save-u_hm_map_save),tmp1)
+        call scale_hm_anomaly(tmp1, hm_scale)        ! what the CRM actually received
         u_adj_cs = u0_in - u_sub_map_save - tmp1     ! CRM-generated adjustment (subdomain space)
         call center2face_U_inverse_filtered(u_adj_cs, tmp2)   ! 对流调整 + diffusion
 
@@ -375,6 +388,7 @@ subroutine host_model_evolve( &
           call face2center_U_inverse_filtered(tmp2, tmp3)
           u_resid_map = u_adj_cs - tmp3
         end if
+        call scale_hm_anomaly(tmp2, 1./hm_scale)     ! into host units (residual above stays in CRM units)
 
         call output_host_model_single_variable(u_hm_updated_map_save-u_hm_map_save, 'Uout_LS', 'LS_Uout' , 'm/s', 0)
         call output_host_model_single_variable(tmp1, 'Uout_CS', 'CS_Uout' , 'm/s', 0)
@@ -384,7 +398,9 @@ subroutine host_model_evolve( &
       else
 
         tmp1 = u_hm_updated_map_save - u_hm_map_save
+        call scale_hm_anomaly(tmp1, hm_scale)
         tmp2 = u0_in - u_sub_map_save - tmp1
+        call scale_hm_anomaly(tmp2, 1./hm_scale)
 
         call output_host_model_single_variable(tmp1, 'Uout_CS', 'sub_Uout' , 'm/s', 0)
         call output_host_model_single_variable(tmp2, 'Uadj_LS', 'LS_Uadj' , 'm/s', 0)
@@ -433,6 +449,7 @@ subroutine host_model_evolve( &
         u_press_modify = u_hm_map - tmp_U
 
       end if  ! subdomain_center_at_hm_u_center
+      call scale_hm_anomaly(u_press_modify, hm_scale)
 
       ! call output_host_model_single_variable(u_press_modify, 'U_modify', 'U_back_to_subdomain' , 'm/s', 0)
       u_sub_map_save = u0_in + u_press_modify
@@ -442,10 +459,28 @@ subroutine host_model_evolve( &
 
     if (subdomain_center_at_hm_u_center) then
 
-      t_hm_map = t_hm_map_save + t0_in - t_sub_map_save
-      q_hm_map = q_hm_map_save + q0_in - q_sub_map_save
-      call output_host_model_single_variable(t0_in - t_sub_map_save - t_hm_updated_map_save + t_hm_map_save, 'Tadj', 'Tadj' , 'K', 0)
-      call output_host_model_single_variable(q0_in - q_sub_map_save - q_hm_updated_map_save + q_hm_map_save, 'Qadj', 'Qadj' , 'kg/kg', 0)
+      if (hm_scale .eq. 1.) then
+        t_hm_map = t_hm_map_save + t0_in - t_sub_map_save
+        q_hm_map = q_hm_map_save + q0_in - q_sub_map_save
+        call output_host_model_single_variable(t0_in - t_sub_map_save - t_hm_updated_map_save + t_hm_map_save, 'Tadj', 'Tadj' , 'K', 0)
+        call output_host_model_single_variable(q0_in - q_sub_map_save - q_hm_updated_map_save + q_hm_map_save, 'Qadj', 'Qadj' , 'kg/kg', 0)
+      else
+        ! same as above, but the host increment the CRM received was scaled up, and the
+        ! CRM adjustment (Tadj/Qadj, CRM units) is scaled down before it enters the host
+        tmp1 = t_hm_updated_map_save - t_hm_map_save
+        call scale_hm_anomaly(tmp1, hm_scale)
+        tmp2 = t0_in - t_sub_map_save - tmp1
+        call output_host_model_single_variable(tmp2, 'Tadj', 'Tadj' , 'K', 0)
+        call scale_hm_anomaly(tmp2, 1./hm_scale)
+        t_hm_map = t_hm_updated_map_save + tmp2
+
+        tmp1 = q_hm_updated_map_save - q_hm_map_save
+        call scale_hm_anomaly(tmp1, hm_scale)
+        tmp2 = q0_in - q_sub_map_save - tmp1
+        call output_host_model_single_variable(tmp2, 'Qadj', 'Qadj' , 'kg/kg', 0)
+        call scale_hm_anomaly(tmp2, 1./hm_scale)
+        q_hm_map = q_hm_updated_map_save + tmp2
+      end if
     
     else
       ! ====================================================
@@ -456,7 +491,9 @@ subroutine host_model_evolve( &
       ! call face2center_U(t0_in - t_sub_map_save - tmp1, tmp2)
       
       call center2face_U_inverse_filtered(t_hm_updated_map_save - t_hm_map_save, tmp1)      
+      call scale_hm_anomaly(tmp1, hm_scale)
       call face2center_U_inverse_filtered(t0_in - t_sub_map_save - tmp1, tmp2)
+      call scale_hm_anomaly(tmp2, 1./hm_scale)
 
       t_hm_map = t_hm_updated_map_save + tmp2
 
@@ -470,7 +507,9 @@ subroutine host_model_evolve( &
       ! call face2center_U(q0_in - q_sub_map_save - tmp1, tmp2)
       
       call center2face_U_inverse_filtered(q_hm_updated_map_save - q_hm_map_save, tmp1)
+      call scale_hm_anomaly(tmp1, hm_scale)
       call face2center_U_inverse_filtered(q0_in - q_sub_map_save - tmp1, tmp2)
+      call scale_hm_anomaly(tmp2, 1./hm_scale)
 
       q_hm_map = q_hm_updated_map_save + tmp2
 
@@ -524,7 +563,15 @@ subroutine host_model_evolve( &
 
     if (do_hm_bubble) then
       if (hm_step.lt.hm_bubble_step) then
-        call cold_bubble_hm(t_hm_map)
+        if (hm_scale .eq. 1.) then
+          call cold_bubble_hm(t_hm_map)
+        else
+          ! hm_bubble_dtemp is a physical amplitude: add it in host units
+          tmp4 = 0.
+          call cold_bubble_hm(tmp4)
+          call scale_hm_anomaly(tmp4, 1./hm_scale)
+          t_hm_map = t_hm_map + tmp4
+        end if
       end if
     end if
     
@@ -647,7 +694,12 @@ subroutine host_model_evolve( &
 
   end if
 
-  w_out_map = w_hm_map
+  w_out_map = w_hm_map   ! stays inside the host (wsub_map), not scaled
+
+  ! host increments back to CRM units
+  call scale_hm_anomaly(u_out_map, hm_scale)
+  call scale_hm_anomaly(t_out_map, hm_scale)
+  call scale_hm_anomaly(q_out_map, hm_scale)
 
   ! call output_host_model_single_variable(u_out_map, 'U_OUT_hm', 'u_out_from_host_model_evolution' , 'm/s', 0)
 
@@ -2654,6 +2706,13 @@ subroutine add_initial_bubble_to_hm()
       end do
     end do
 
+    ! host maps were uniform before the bubble, so this puts the bubble in host units
+    ! (t_sub_map_save is the CRM state, CRM units, left as is)
+    if (.not. hm_only) then
+      call scale_hm_anomaly(t_hm_map_save,         1./hm_coupling_scale)
+      call scale_hm_anomaly(t_hm_updated_map_save, 1./hm_coupling_scale)
+    end if
+
     if (masterproc) then
       i1 = max(1,   nsx/2 - init_bubble_nsubdomain_half + 1)
       i2 = min(nsx, nsx/2 + init_bubble_nsubdomain_half)
@@ -3323,5 +3382,27 @@ subroutine cal_nyquist(field, nyquist_field)
     end do
 
 end subroutine cal_nyquist
+
+
+subroutine scale_hm_anomaly(field, fac)
+! Scale the deviation from the host-domain mean (over nsx, per level) by fac:
+!   field = <field> + fac*(field - <field>)
+! Used for hm_coupling_scale (see vars.f90): fac = 1/scale on the way into the host,
+! fac = scale on the way back to the CRM.  Returns untouched when fac == 1, so the
+! default run stays bit-identical.
+    implicit none
+    real, intent(inout) :: field(:,:)
+    real, intent(in) :: fac
+    integer :: k
+    real :: fmean
+
+    if (fac .eq. 1.) return
+
+    do k = 1, size(field,2)
+        fmean = sum(field(:,k)) / real(size(field,1))
+        field(:,k) = fmean + fac*(field(:,k) - fmean)
+    end do
+
+end subroutine scale_hm_anomaly
 
 end module module_hostmodel

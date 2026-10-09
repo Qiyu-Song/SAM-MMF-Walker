@@ -72,7 +72,7 @@ NAMELIST /KUANG_PARAMS/ dompiensemble, &
                 do_fix_u_halo, &
                 do_hm_bubble, hm_bubble_step, hm_bubble_z_bot, hm_bubble_z_top, hm_bubble_nsubdomain_half, hm_bubble_dtemp, &
                 add_initial_bubble, init_bubble_z_top, init_bubble_nsubdomain_half, init_bubble_dtemp, &
-                hm_t_exclude_precip
+                hm_t_exclude_precip, hm_coupling_scale
 
 
                 
@@ -271,7 +271,7 @@ end if
         end if
 
         if(dompimmf) then
-          dx_hm = dx * nx / 4.0  ! 如果要改分辨率
+          dx_hm = dx * nx / 0.125  ! 如果要改分辨率
           dt_hm = dt * nstephostmodel
           dt_hm_subcycle = dt_hm / hm_subcycle
 
@@ -317,6 +317,15 @@ end if
             end if
             call task_abort()
           end if
+          if(hm_coupling_scale.le.0.) then
+            if(masterproc) then
+              write(*,*) '*********************************************************'
+              write(*,*) '  ERROR: hm_coupling_scale = ', hm_coupling_scale
+              write(*,*) '  must be > 0 (1.0 = no scaling).'
+              write(*,*) '*********************************************************'
+            end if
+            call task_abort()
+          end if
           if(masterproc) then
             write(*,*) '*********************************************************'
             write(*,*) '  Using the Kuang_Lab Multi-scale Modeling Framework'
@@ -335,6 +344,13 @@ end if
             else
               write(*,*) '  hm_t_exclude_precip = F: host t = <t>, includes the precipitation term'
               write(*,*) '    (host advects the deficit of qp but not qp itself)'
+            end if
+            if(hm_coupling_scale.ne.1. .and. .not.hm_only) then
+              write(*,*) '  hm_coupling_scale = ', hm_coupling_scale, &
+                         ': host sees CRM anomalies / scale, CRM gets host anomalies * scale'
+              write(*,*) '    (host-side output anomalies are in host units, i.e. divided by the scale)'
+            else
+              write(*,*) '  hm_coupling_scale = ', hm_coupling_scale, ' (no amplitude scaling)'
             end if
             write(*,*) '  ----- domain-mean drag (damping_hm) -----'
             if(do_damp_hm_mean) then

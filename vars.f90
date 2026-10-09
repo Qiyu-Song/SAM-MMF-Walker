@@ -433,4 +433,19 @@ real ug0_resid(nzm)     ! that residual, per level, scattered back to each subdo
 ! CRM design.  The two pre-existing `! call boundaries(1)` comments were that trap.
 logical :: do_fix_u_halo = .false.
 
+! Amplitude scaling of the host model (small-amplitude / near-linear large-scale dynamics).
+! Every CRM -> host increment is divided by hm_coupling_scale and every host -> CRM increment
+! is multiplied by it, so the host carries x_host = <x> + x'/hm_coupling_scale.  Host terms
+! linear in x' are unchanged as seen by the CRM; quadratic terms are reduced by 1/hm_coupling_scale.
+! Only the deviation from the host-domain mean (over nsx, per level) is scaled: the mean state
+! (background wind, stratification) is passed unscaled both ways, otherwise mean-wind advection
+! would be lost and tendencies acting on the base state (nudging, damping) amplified.
+! Also scaled into host units: the condensate fields used by the host buoyancy, and the host-side
+! bubbles (do_hm_bubble, add_initial_bubble).  Not scaled (they live in CRM space): the direct
+! subdomain diffusion, the Nyquist and coupling-residual removals.
+! Host-side output (U_LS, t_LS, q_LS, *_LS, W, p_phys3) is in host units: multiply its
+! deviation from the domain mean by hm_coupling_scale to get physical values.
+! Ignored when hm_only.  Default 1.0 is bit-identical to runs before 2026-10-07.
+real :: hm_coupling_scale = 1.0
+
 end module vars
