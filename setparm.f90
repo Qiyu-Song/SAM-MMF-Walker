@@ -271,7 +271,7 @@ end if
         end if
 
         if(dompimmf) then
-          dx_hm = dx * nx / 0.125  ! 如果要改分辨率
+          dx_hm = dx * nx / 0.5  ! 如果要改分辨率
           dt_hm = dt * nstephostmodel
           dt_hm_subcycle = dt_hm / hm_subcycle
 
@@ -347,8 +347,12 @@ end if
             end if
             if(hm_coupling_scale.ne.1. .and. .not.hm_only) then
               write(*,*) '  hm_coupling_scale = ', hm_coupling_scale, &
-                         ': host sees CRM anomalies / scale, CRM gets host anomalies * scale'
-              write(*,*) '    (host-side output anomalies are in host units, i.e. divided by the scale)'
+                         ': host = x_ref + (x - x_ref)/scale, CRM gets host increments * scale'
+              write(*,*) '    (fixed reference = host initial state; host output is in host units)'
+              if(.not.apply_hm_u_external_nudging) then
+                write(*,*) '  WARNING: apply_hm_u_external_nudging = F, host u reference = 0.'
+                write(*,*) '    Any CRM background wind is divided by the scale in the host.'
+              end if
             else
               write(*,*) '  hm_coupling_scale = ', hm_coupling_scale, ' (no amplitude scaling)'
             end if

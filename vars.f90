@@ -433,19 +433,25 @@ real ug0_resid(nzm)     ! that residual, per level, scattered back to each subdo
 ! CRM design.  The two pre-existing `! call boundaries(1)` comments were that trap.
 logical :: do_fix_u_halo = .false.
 
-! Amplitude scaling of the host model (small-amplitude / near-linear large-scale dynamics).
+! Amplitude scaling of the host model (near-linear large-scale dynamics about a FIXED reference).
 ! Every CRM -> host increment is divided by hm_coupling_scale and every host -> CRM increment
-! is multiplied by it, so the host carries x_host = <x> + x'/hm_coupling_scale.  Host terms
-! linear in x' are unchanged as seen by the CRM; quadratic terms are reduced by 1/hm_coupling_scale.
-! Only the deviation from the host-domain mean (over nsx, per level) is scaled: the mean state
-! (background wind, stratification) is passed unscaled both ways, otherwise mean-wind advection
-! would be lost and tendencies acting on the base state (nudging, damping) amplified.
-! Also scaled into host units: the condensate fields used by the host buoyancy, and the host-side
-! bubbles (do_hm_bubble, add_initial_bubble).  Not scaled (they live in CRM space): the direct
-! subdomain diffusion, the Nyquist and coupling-residual removals.
-! Host-side output (U_LS, t_LS, q_LS, *_LS, W, p_phys3) is in host units: multiply its
-! deviation from the domain mean by hm_coupling_scale to get physical values.
+! is multiplied by it, domain mean included.  The host therefore carries
+!     x_host = x_ref + (x - x_ref)/hm_coupling_scale,
+! where x_ref is the host's own initial state (host_model_init: t0/q0 of the master rank, u = 0
+! or u_external_profile).  Host terms linear in (x - x_ref) are unchanged as seen by the CRM;
+! quadratic terms are reduced by 1/hm_coupling_scale.  The linear operator uses the fixed
+! reference stratification, not the evolving CRM mean.
+! Requirements: the u reference must equal the target of the domain-mean nudging/drag
+! (automatic: both are u_external_profile, or both zero), and the CRM background wind must be
+! that reference (with apply_hm_u_external_nudging off, the CRM u0 must be ~0).
+! Condensates used by the host buoyancy are referenced to zero, i.e. simply divided by the
+! scale (consistent with a cloud-free initial state, hm_spinup_step = 0).
+! Also scaled into host units: the host-side bubbles (do_hm_bubble, add_initial_bubble).
+! Not scaled (CRM space): the direct subdomain diffusion, the Nyquist and residual removals.
+! Host-side output (U_LS, t_LS, q_LS, *_LS, W, p_phys3) is in host units:
+! physical = x_ref + hm_coupling_scale*(output - x_ref).
 ! Ignored when hm_only.  Default 1.0 is bit-identical to runs before 2026-10-07.
+! Do not change it within a restart chain (host state and AB3 history are in host units).
 real :: hm_coupling_scale = 1.0
 
 end module vars
