@@ -19,7 +19,8 @@ module domain
        integer, parameter :: navgmom_y = -1 
 
        integer, parameter :: ntracers = 0 ! number of transported tracers (dotracers=.true.)
-       
+     
+        
 ! Note:
 !  * nx_gl and ny_gl should be a factor of 2,3, or 5 (see User's Guide)
 !  * if 2D case, ny_gl = nsubdomains_y = 1 ;
