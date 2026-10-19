@@ -9,6 +9,7 @@ module domain
        integer, parameter :: nsubdomains_x  = 320 ! No of subdomains in x   # default: 80
        integer, parameter :: nsubdomains_y  = 1 ! No of subdomains in y
 
+
        ! define # of points in x and y direction to average for 
        !   output relating to statistical moments.
        ! For example, navgmom_x = 8 means the output will be   
